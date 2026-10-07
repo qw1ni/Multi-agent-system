@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model authors {
+  id               Int                @id @default(autoincrement())
+  name             String             @unique @db.VarChar(255)
+  material_authors material_authors[]
+}
+
+model departments {
+  id                     Int                      @id @default(autoincrement())
+  name                   String                   @unique @db.VarChar(255)
+  url                    String                   @unique
+  faculty_id             Int
+  department_disciplines department_disciplines[]
+  faculties              faculties                @relation(fields: [faculty_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_faculty")
+  materials              materials[]
+  users                  users[]
+}
+
+model faculties {
+  id          Int           @id @default(autoincrement())
+  name        String        @unique @db.VarChar(255)
+  url         String        @unique
+  departments departments[]
+  users       users[]
+}
+
+model keywords {
+  id                Int                 @id @default(autoincrement())
+  word              String              @unique @db.VarChar(100)
+  material_keywords material_keywords[]
+}
+
+model material_authors {
+  material_id Int
+  author_id   Int
+  authors     authors   @relation(fields: [author_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_author_ma")
+  materials   materials @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_ma")
+
+  @@id([material_id, author_id])
+}
+
+model material_embeddings {
+  material_id    Int                    @id
+  text_embedding Unsupported("vector")?
+  materials      materials              @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_embedding")
+}
+
+model material_keywords {
+  material_id Int
+  keyword_id  Int
+  keywords    keywords  @relation(fields: [keyword_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_keyword_mk")
+  materials   materials @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_mk")
+
+  @@id([material_id, keyword_id])
+}
+
+model material_specialties {
+  material_id Int
+  spec_code   String      @db.VarChar(30)
+  materials   materials   @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_ms")
+  specialties specialties @relation(fields: [spec_code], references: [spec_code], onDelete: Cascade, map: "fk_specialty_ms")
+
+  @@id([material_id, spec_code])
+}
+
+model material_types {
+  material_id Int
+  type_id     Int
+  materials   materials @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_mt")
+  types       types     @relation(fields: [type_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_specialty_mt")
+
+  @@id([material_id, type_id])
+}
+
+model material_udccodes {
+  material_id Int
+  code_udc    String
+  materials   materials @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_mu")
+  udc_codes   udc_codes @relation(fields: [code_udc], references: [code], onDelete: Cascade, onUpdate: NoAction, map: "fk_udccodes_mu")
+
+  @@id([material_id, code_udc])
+}
+
+model materials {
+  id                   Int                    @id @default(autoincrement())
+  title                String
+  alternative_title    String?
+  abstract_text        String?
+  language_code        String?                @default("ru") @db.VarChar(10)
+  publisher            String?
+  citation             String?
+  uri                  String                 @unique
+  available_date       DateTime?              @db.Timestamp(6)
+  issued_year          Int?
+  pages                Int?
+  file_link            String                 @unique
+  department_id        Int
+  material_authors     material_authors[]
+  material_embeddings  material_embeddings?
+  material_keywords    material_keywords[]
+  material_specialties material_specialties[]
+  material_types       material_types[]
+  material_udccodes    material_udccodes[]
+  departments          departments            @relation(fields: [department_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_department")
+}
+
+model roles {
+  id    Int     @id @default(autoincrement())
+  name  String  @db.VarChar(50)
+  users users[]
+}
+
+model specialties {
+  spec_code              String                   @id @db.VarChar(30)
+  spec_name              String
+  discipline_specialties discipline_specialties[]
+  material_specialties   material_specialties[]
+}
+
+model types {
+  id             Int              @id @default(autoincrement())
+  type_name      String           @unique @db.VarChar(100)
+  material_types material_types[]
+}
+
+model udc_codes {
+  code              String              @id
+  title             String?
+  material_udccodes material_udccodes[]
+}
+
+model users {
+  user_id       Int          @id @default(autoincrement())
+  full_name     String       @db.VarChar(255)
+  email         String?      @unique @db.VarChar(255)
+  login         String       @unique @db.VarChar(100)
+  password      String       @db.VarChar(255)
+  faculty_id    Int?
+  department_id Int?
+  role_id       Int
+  departments   departments? @relation(fields: [department_id], references: [id], onUpdate: NoAction, map: "fk_department")
+  faculties     faculties?   @relation(fields: [faculty_id], references: [id], onUpdate: NoAction, map: "fk_faculty")
+  roles         roles        @relation(fields: [role_id], references: [id], onUpdate: NoAction, map: "fk_role")
+}
+
+model department_disciplines {
+  id            Int         @id @default(autoincrement())
+  department_id Int
+  discipline_id Int
+  year_start    Int
+  departments   departments @relation(fields: [department_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_department_dd")
+  disciplines   disciplines @relation(fields: [discipline_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_discipline_dd")
+
+  @@unique([department_id, discipline_id, year_start], map: "unique_department_discipline_year")
+}
+
+model discipline_specialties {
+  discipline_id Int
+  spec_code     String      @db.VarChar(30)
+  disciplines   disciplines @relation(fields: [discipline_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_discipline_ds")
+  specialties   specialties @relation(fields: [spec_code], references: [spec_code], onDelete: Cascade, onUpdate: NoAction, map: "fk_specialty_ds")
+
+  @@id([discipline_id, spec_code])
+}
+
+model disciplines {
+  id                     Int                      @id @default(autoincrement())
+  name                   String                   @unique
+  department_disciplines department_disciplines[]
+  discipline_specialties discipline_specialties[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model specialties_backup {
+  spec_code String? @db.VarChar(30)
+  spec_name String?
+
+  @@ignore
+}

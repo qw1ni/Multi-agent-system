@@ -1,0 +1,26 @@
+# Dependencies
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/.Python
+
+# Env and secrets
+**/.env
+!**/.env.example
+
+# Downloads and local data
+**/data/downloads/
+**/*.log
+
+# Build / IDE
+**/build/
+**/dist/
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/coverage/
+
+# Prisma / misc
+**/.prisma/
