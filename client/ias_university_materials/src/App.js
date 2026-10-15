@@ -11,6 +11,7 @@ import AnalyticsPage from './pages/AnalyticsPage.js';
 import AdminPage from './pages/AdminPage.js';
 import ForbiddenPage from './pages/Errors/ForbiddenPage.js';
 import NotFoundPage from './pages/Errors/NotFoundPage.js';
+import AgentChatWidget from './components/AgentChat/AgentChatWidget.js';
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        <AgentChatWidget />
       </BrowserRouter>
     </>
   );

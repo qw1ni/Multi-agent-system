@@ -7,13 +7,21 @@ const adminService = {
         });
         return response.data;
     },
-    runLibraryParser: async () => {
+    runLibraryParser: async (mode = 'full') => {
         try {
-            const response = await axiosInstance.post('/admin/run_parser');
+            const response = await axiosInstance.post('/admin/run_parser', { mode });
             return response.data;
         } catch (error) {
             throw error;
         }
+    },
+    stopLibraryParser: async () => {
+        const response = await axiosInstance.post('/admin/stop_parser');
+        return response.data;
+    },
+    getParserStatus: async () => {
+        const response = await axiosInstance.get('/admin/parser_status');
+        return response.data;
     },
     getDownloadSections: async () => {
         const response = await axiosInstance.get('/admin/download_sections');
@@ -28,6 +36,22 @@ const adminService = {
         } catch (error) {
             throw error;
         }
+    },
+    stopLibraryDownload: async () => {
+        const response = await axiosInstance.post('/admin/download_stop');
+        return response.data;
+    },
+    getConverterStatus: async () => {
+        const response = await axiosInstance.get('/admin/converter/status');
+        return response.data;
+    },
+    startConverter: async (sections = null, force = false) => {
+        const response = await axiosInstance.post('/admin/converter/start', { sections, force });
+        return response.data;
+    },
+    stopConverter: async () => {
+        const response = await axiosInstance.post('/admin/converter/stop');
+        return response.data;
     },
     importDisciplines: async () => {
         try {

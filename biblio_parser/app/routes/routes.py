@@ -1,25 +1,29 @@
-import os
 import threading
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.services.parser_service import ParserService
 from app.services.excel_service import ExcelService
 from app.services.specialty_service import SpecialtyService
-from app.services.download_service import DownloadService, KNOWN_SECTIONS
+from app.services.download_service import DownloadService, KNOWN_SECTIONS, request_stop
 from app.providers.db_manager import DatabaseManager
-from app.providers.parser import SiteCrawler
 from app.providers.log_sender import LogSender
 from app.repositories.material_repository import MaterialRepository
 from app.repositories.discipline_repository import DisciplineRepository
+from app.swarm import parsing_orchestrator as orchestrator
 
 
 router = APIRouter(prefix="/api/parser", tags=["Parser"])
 
-_parser_lock = threading.Lock()
 _download_lock = threading.Lock()
+
+
+class StartParserRequest(BaseModel):
+    mode: Literal["full", "incremental"] = Field(
+        default="full",
+        description="full — парсить всё с нуля, incremental — пропускать материалы, уже есть в БД.",
+    )
 
 
 class DownloadFilesRequest(BaseModel):
@@ -27,17 +31,6 @@ class DownloadFilesRequest(BaseModel):
         default=None,
         description="Список разделов для скачивания. Пусто / null = все.",
     )
-
-
-def get_parser_service():
-    db_manager = DatabaseManager()
-    crawler = SiteCrawler(
-        base_url=os.getenv("BASE_URL"),
-        faculties_link=os.getenv("FACULTIES_LINK")
-    )
-    repository = MaterialRepository(db_manager)
-    log_sender = LogSender()
-    return ParserService(crawler, repository, log_sender)
 
 
 def get_excel_service():
@@ -77,20 +70,44 @@ def _run_in_thread(target, *args, lock: threading.Lock = None):
 
 
 @router.post("/start")
-async def start_parser_endpoint(
-        service: ParserService = Depends(get_parser_service)
-):
-    if _parser_lock.locked():
+async def start_parser_endpoint(body: StartParserRequest = StartParserRequest()):
+    if not orchestrator.start(body.mode):
         return {
             "status": "busy",
-            "message": "Парсер уже выполняется"
+            "message": "Рой парсинга уже работает"
         }
-
-    _run_in_thread(service.run_full_sync, lock=_parser_lock)
 
     return {
         "status": "accepted",
-        "message": "Процесс парсинга запущен в фоновом режиме"
+        "message": (
+            "Рой агентов запущен: парсинг новых материалов"
+            if body.mode == "incremental"
+            else "Рой агентов запущен: парсинг с нуля"
+        )
+    }
+
+
+@router.post("/stop")
+async def stop_parser_endpoint():
+    if not orchestrator.stop():
+        return {
+            "status": "idle",
+            "message": "Парсинг сейчас не выполняется"
+        }
+
+    return {
+        "status": "accepted",
+        "message": "Остановка роя запрошена"
+    }
+
+
+@router.get("/status")
+async def parser_status_endpoint():
+    return {
+        "status": "ok",
+        "parsing": orchestrator.is_running(),
+        "downloading": _download_lock.locked(),
+        "swarm": orchestrator.status(),
     }
 
 
@@ -107,7 +124,9 @@ async def list_sections_endpoint(
         ]
     return {
         "status": "ok",
-        "sections": sections
+        "sections": sections,
+        "parsing": orchestrator.is_running(),
+        "downloading": _download_lock.locked(),
     }
 
 
@@ -134,6 +153,22 @@ async def download_files_endpoint(
     return {
         "status": "accepted",
         "message": message
+    }
+
+
+@router.post("/download_stop")
+async def download_stop_endpoint():
+    if not _download_lock.locked():
+        return {
+            "status": "idle",
+            "message": "Скачивание сейчас не выполняется"
+        }
+
+    request_stop()
+
+    return {
+        "status": "accepted",
+        "message": "Остановка скачивания запрошена"
     }
 
 

@@ -1,12 +1,25 @@
 import os
 import re
 import logging
+import threading
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Общий на процесс: DownloadService создаётся заново на каждый запрос
+_stop_event = threading.Event()
+
+
+class DownloadStopped(Exception):
+    pass
+
+
+def request_stop():
+    _stop_event.set()
+
 
 # Короткие имена разделов (как в парсере ROOT_SECTION_PATHS)
 KNOWN_SECTIONS = [
@@ -95,6 +108,7 @@ class DownloadService:
                 self._log("Не выбраны корректные разделы для скачивания", "ERROR")
                 return
 
+        _stop_event.clear()
         label = ", ".join(selected) if selected else "все разделы"
         self._log(f"Запуск скачивания файлов ({label})...")
         self.download_dir.mkdir(parents=True, exist_ok=True)
@@ -116,7 +130,18 @@ class DownloadService:
         skipped = 0
         failed = 0
 
+        def log_stopped(done: int):
+            self._log(
+                f"Скачивание остановлено пользователем на {done}/{total}. "
+                f"Новых: {downloaded}, уже были: {skipped}, ошибок: {failed}",
+                "WARNING",
+            )
+
         for index, row in enumerate(materials, start=1):
+            if _stop_event.is_set():
+                log_stopped(index - 1)
+                return
+
             material_id = row["id"]
             title = row["title"] or "material"
             file_url = row["file_link"]
@@ -127,6 +152,7 @@ class DownloadService:
             ext = self._extension_from_url(file_url)
             filename = f"{material_id}_{self._safe_name(title)}{ext}"
             target = section_dir / filename
+            partial = target.with_name(target.name + ".part")
 
             if target.exists() and target.stat().st_size > 0:
                 skipped += 1
@@ -134,19 +160,22 @@ class DownloadService:
                 try:
                     with requests.get(file_url, stream=True, timeout=120) as response:
                         response.raise_for_status()
-                        with open(target, "wb") as out:
+                        with open(partial, "wb") as out:
                             for chunk in response.iter_content(chunk_size=65536):
+                                if _stop_event.is_set():
+                                    raise DownloadStopped()
                                 if chunk:
                                     out.write(chunk)
+                    partial.replace(target)
                     downloaded += 1
+                except DownloadStopped:
+                    partial.unlink(missing_ok=True)
+                    log_stopped(index - 1)
+                    return
                 except Exception as e:
                     failed += 1
                     logger.error(f"Ошибка скачивания id={material_id}: {e}")
-                    if target.exists():
-                        try:
-                            target.unlink()
-                        except OSError:
-                            pass
+                    partial.unlink(missing_ok=True)
 
             if index % 25 == 0 or index == total:
                 self._log(

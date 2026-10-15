@@ -1,7 +1,20 @@
 import logging
+import re
+import threading
 from app.providers.queries import INSERT_MAP, CREATE_TEMP_STAGE_TABLE, INSERT_INTO_STAGE, BATCH_DISTRIBUTE_DATA
 
 logger = logging.getLogger(__name__)
+
+HANDLE_RE = re.compile(r"/handle/\d+/\d+")
+
+# Пакеты от разных агентов роя пересекаются по авторам/ключевым словам:
+# параллельные транзакции с ON CONFLICT ловят deadlock, поэтому пишем по очереди
+_batch_write_lock = threading.Lock()
+
+
+def extract_handle(url: str):
+    match = HANDLE_RE.search(url or "")
+    return match.group(0) if match else None
 
 
 class MaterialRepository:
@@ -15,9 +28,21 @@ class MaterialRepository:
     def save_department(self, name, url, faculty_id):
         return self.db.execute(self.insert_queries['department'], (name, url, faculty_id), fetch=True)
 
+    def get_known_material_handles(self):
+        rows = self.db.fetchall("SELECT uri FROM materials") or []
+        return {h for h in (extract_handle(row.get("uri")) for row in rows) if h}
+
     def save_materials_batch(self, batch_data):
         if not batch_data:
             return True
+
+        with _batch_write_lock:
+            return self._save_materials_batch(batch_data)
+
+    def _save_materials_batch(self, batch_data):
+        if not self.db.conn:
+            logger.error("Нет соединения с БД")
+            return False
 
         old_autocommit = self.db.conn.autocommit
         self.db.conn.autocommit = False

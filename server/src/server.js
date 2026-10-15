@@ -7,6 +7,13 @@ import { errorHandler } from './middleware/errorHandler.js';
 import cookieParser from 'cookie-parser';
 import socketServerInstance from './websocket/socketServer.js';
 
+// Windows .env (CRLF) иногда оставляет \r в значениях — ломает CORS-заголовки
+for (const [key, value] of Object.entries(process.env)) {
+  if (typeof value === 'string' && value.includes('\r')) {
+    process.env[key] = value.replace(/\r/g, '').trim();
+  }
+}
+
 BigInt.prototype.toJSON = function() {       
   return Number(this);
 };
@@ -17,7 +24,7 @@ const app = express()
 const server = http.createServer(app);
 
 const corsOptions = {
-    origin: process.env.DOMAIN,
+    origin: (process.env.DOMAIN || 'http://localhost:3000').trim(),
     credentials: true,
     optionsSuccessStatus: 200
 };

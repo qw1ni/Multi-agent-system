@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --import dotenv/config src/server.js"
+    "dev": "node --watch --watch-preserve-output --import dotenv/config src/server.js"
   },
   "keywords": [],
   "author": "",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Container, Box, Typography, Paper, Button,
@@ -15,6 +15,8 @@ import * as yup from 'yup';
 import io from 'socket.io-client';
 
 import AdminTableRow from '../components/Tables/AdminTableRow';
+import SwarmPanel from '../components/SwarmPanel/SwarmPanel';
+import ConverterPanel from '../components/ConverterPanel/ConverterPanel';
 
 import userService from '../services/userService';
 import facultyService from '../services/facultyService';
@@ -69,7 +71,12 @@ const AdminPage = () => {
     ];
 
     const [parserLoading, setParserLoading] = useState(false);
+    const [parserRunning, setParserRunning] = useState(false);
+    const [parserStopLoading, setParserStopLoading] = useState(false);
+    const [swarm, setSwarm] = useState(null);
     const [downloadLoading, setDownloadLoading] = useState(false);
+    const [downloadRunning, setDownloadRunning] = useState(false);
+    const [stopLoading, setStopLoading] = useState(false);
     const [backupLoading, setBackupLoading] = useState(false);
     const [downloadSections, setDownloadSections] = useState(DEFAULT_DOWNLOAD_SECTIONS);
     const [selectedSections, setSelectedSections] = useState(DEFAULT_DOWNLOAD_SECTIONS.map((s) => s.id));
@@ -86,6 +93,41 @@ const AdminPage = () => {
     const [logs, setLogs] = useState([]);
     const socketRef = useRef(null);
     const consoleEndRef = useRef(null);
+    const consoleBoxRef = useRef(null);
+    const stickToBottomRef = useRef(true);
+    const lastScrollTopRef = useRef(0);
+
+    // Событие scroll от автопрокрутки приходит асинхронно, когда уже могли добавиться
+    // новые строки, поэтому отлипаем от низа только при движении вверх.
+    const handleConsoleScroll = () => {
+        const box = consoleBoxRef.current;
+        if (!box) return;
+        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+        const movedUp = box.scrollTop < lastScrollTopRef.current;
+        if (movedUp) {
+            stickToBottomRef.current = false;
+        } else if (nearBottom) {
+            stickToBottomRef.current = true;
+        }
+        lastScrollTopRef.current = box.scrollTop;
+    };
+
+    const handleConsoleWheel = (e) => {
+        if (e.deltaY < 0) stickToBottomRef.current = false;
+    };
+
+    useLayoutEffect(() => {
+        const box = consoleBoxRef.current;
+        if (logs.length === 0) {
+            stickToBottomRef.current = true;
+            lastScrollTopRef.current = 0;
+            return;
+        }
+        if (box && stickToBottomRef.current) {
+            box.scrollTop = box.scrollHeight;
+            lastScrollTopRef.current = box.scrollTop;
+        }
+    }, [logs, loading]);
 
     const loadUsers = useCallback(async (searchQuery, currentPage, limit) => {
         try {
@@ -118,6 +160,14 @@ const AdminPage = () => {
 
         socketRef.current.on('new_parser_log', (newLog) => {
             setLogs((prevLogs) => [...prevLogs, newLog]);
+
+            if (
+                newLog.message?.startsWith('Скачивание завершено') ||
+                newLog.message?.startsWith('Скачивание остановлено')
+            ) {
+                setDownloadRunning(false);
+                setStopLoading(false);
+            }
 
             if (
                 newLog.level === 'SUCCESS' &&
@@ -219,15 +269,61 @@ const AdminPage = () => {
         }
     };
 
-    const handleStartParser = async () => {
+    const notify = useCallback((message, severity = 'success') => {
+        setSnackbar({ open: true, message, severity });
+    }, []);
+
+    const refreshParserStatus = useCallback(async () => {
+        try {
+            const data = await adminService.getParserStatus();
+            setSwarm(data.swarm || null);
+            setParserRunning(Boolean(data.parsing));
+            if (!data.parsing) {
+                setParserStopLoading(false);
+            }
+        } catch (err) {
+            console.error('Не удалось получить статус роя парсинга:', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        refreshParserStatus();
+    }, [refreshParserStatus]);
+
+    useEffect(() => {
+        if (!parserRunning) return undefined;
+        const timer = setInterval(refreshParserStatus, 2000);
+        return () => clearInterval(timer);
+    }, [parserRunning, refreshParserStatus]);
+
+    const handleStartParser = async (mode) => {
         try {
             setParserLoading(true);
-            const result = await adminService.runLibraryParser();
+            const result = await adminService.runLibraryParser(mode);
+            if (result.status === 'accepted' || result.status === 'busy') {
+                setParserRunning(true);
+            }
             setSnackbar({ open: true, message: result.message || 'Парсер запущен', severity: 'success' });
+            refreshParserStatus();
         } catch (err) {
             setSnackbar({ open: true, message: 'Не удалось запустить парсер', severity: 'error' });
         } finally {
             setParserLoading(false);
+        }
+    };
+
+    const handleStopParser = async () => {
+        try {
+            setParserStopLoading(true);
+            const result = await adminService.stopLibraryParser();
+            if (result.status === 'idle') {
+                setParserStopLoading(false);
+            }
+            setSnackbar({ open: true, message: result.message || 'Остановка роя запрошена', severity: 'info' });
+            refreshParserStatus();
+        } catch (err) {
+            setParserStopLoading(false);
+            setSnackbar({ open: true, message: 'Не удалось остановить парсинг', severity: 'error' });
         }
     };
 
@@ -236,6 +332,7 @@ const AdminPage = () => {
             const data = await adminService.getDownloadSections();
             const sections = data.sections || DEFAULT_DOWNLOAD_SECTIONS;
             setDownloadSections(sections);
+            setDownloadRunning(Boolean(data.downloading));
             setSelectedSections((prev) => {
                 if (prev.length > 0) {
                     return prev.filter((id) => sections.some((s) => s.id === id));
@@ -268,6 +365,7 @@ const AdminPage = () => {
         try {
             setDownloadLoading(true);
             const result = await adminService.downloadLibraryFiles(selectedSections);
+            setDownloadRunning(true);
             setSnackbar({ open: true, message: result.message || 'Скачивание выбранных разделов запущено', severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: 'Не удалось запустить скачивание', severity: 'error' });
@@ -280,11 +378,27 @@ const AdminPage = () => {
         try {
             setDownloadLoading(true);
             const result = await adminService.downloadLibraryFiles(null);
+            setDownloadRunning(true);
             setSnackbar({ open: true, message: result.message || 'Скачивание всех файлов запущено', severity: 'success' });
         } catch (err) {
             setSnackbar({ open: true, message: 'Не удалось запустить скачивание всех файлов', severity: 'error' });
         } finally {
             setDownloadLoading(false);
+        }
+    };
+
+    const handleStopDownload = async () => {
+        try {
+            setStopLoading(true);
+            const result = await adminService.stopLibraryDownload();
+            if (result.status === 'idle') {
+                setDownloadRunning(false);
+                setStopLoading(false);
+            }
+            setSnackbar({ open: true, message: result.message || 'Остановка скачивания запрошена', severity: 'info' });
+        } catch (err) {
+            setStopLoading(false);
+            setSnackbar({ open: true, message: 'Не удалось остановить скачивание', severity: 'error' });
         }
     };
 
@@ -529,27 +643,53 @@ const AdminPage = () => {
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                                 <Button
                                     variant="contained"
-                                    onClick={handleStartParser}
-                                    disabled={parserLoading || downloadLoading}
+                                    onClick={() => handleStartParser('incremental')}
+                                    disabled={parserLoading || parserRunning || downloadLoading}
                                     sx={{ ...actionButtonSx, bgcolor: '#0056b3' }}
                                 >
-                                    {parserLoading ? 'Запуск...' : 'Запуск парсера'}
+                                    {parserLoading ? 'Запуск...' : 'Парсинг новых материалов'}
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    onClick={() => handleStartParser('full')}
+                                    disabled={parserLoading || parserRunning || downloadLoading}
+                                    sx={{ ...actionButtonSx, bgcolor: '#0056b3' }}
+                                >
+                                    {parserLoading ? 'Запуск...' : 'Парсинг с нуля'}
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    color="error"
+                                    onClick={handleStopParser}
+                                    disabled={!parserRunning || parserStopLoading}
+                                    sx={actionButtonSx}
+                                >
+                                    {parserStopLoading ? 'Остановка роя...' : 'Остановить парсинг'}
                                 </Button>
                                 <Button
                                     variant="outlined"
                                     onClick={handleDownloadSelected}
-                                    disabled={downloadLoading || selectedSections.length === 0}
+                                    disabled={downloadLoading || downloadRunning || selectedSections.length === 0}
                                     sx={actionButtonSx}
                                 >
-                                    {downloadLoading ? 'Скачивание...' : 'Скачать выбранное'}
+                                    {downloadLoading || downloadRunning ? 'Скачивание...' : 'Скачать выбранное'}
                                 </Button>
                                 <Button
                                     variant="outlined"
                                     onClick={handleDownloadAll}
-                                    disabled={downloadLoading}
+                                    disabled={downloadLoading || downloadRunning}
                                     sx={actionButtonSx}
                                 >
-                                    {downloadLoading ? 'Скачивание...' : 'Скачать всё'}
+                                    {downloadLoading || downloadRunning ? 'Скачивание...' : 'Скачать всё'}
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    color="error"
+                                    onClick={handleStopDownload}
+                                    disabled={!downloadRunning || stopLoading}
+                                    sx={actionButtonSx}
+                                >
+                                    {stopLoading ? 'Остановка...' : 'Остановить скачивание'}
                                 </Button>
                             </Box>
                             <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5, fontWeight: 'bold', color: 'text.secondary' }}>
@@ -581,6 +721,9 @@ const AdminPage = () => {
                                 </Typography>
                             </Box>
                             <Paper
+                                ref={consoleBoxRef}
+                                onScroll={handleConsoleScroll}
+                                onWheel={handleConsoleWheel}
                                 elevation={0}
                                 sx={{
                                     backgroundColor: '#1e1e1e',
@@ -611,9 +754,12 @@ const AdminPage = () => {
                                 )}
                                 <div ref={consoleEndRef} />
                             </Paper>
+                            <SwarmPanel swarm={swarm} />
                         </Box>
                     </Box>
                 </Paper>
+
+                <ConverterPanel onNotify={notify} />
 
                 <Paper elevation={2} sx={{ p: 3, mb: 4, borderRadius: '12px' }}>
                     <Box

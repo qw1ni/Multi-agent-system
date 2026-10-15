@@ -12,7 +12,10 @@
 
 # Downloads and local data
 **/data/downloads/
+**/data/converted/
 **/*.log
+.run_logs/
+.run_pids
 
 # Build / IDE
 **/build/

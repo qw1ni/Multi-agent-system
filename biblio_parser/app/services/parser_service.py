@@ -1,6 +1,9 @@
 import os
 import re
 import logging
+import threading
+
+from app.repositories.material_repository import extract_handle
 
 logger = logging.getLogger(__name__)
 
@@ -30,51 +33,67 @@ def _clip(text: str, limit: int = 255) -> str:
 
 
 class ParserService:
-    def __init__(self, crawler, repository, log_sender):
+    """Парсинг одного корневого раздела. Используется агентами роя."""
+
+    def __init__(self, crawler, repository, log_sender,
+                 log_prefix: str = "", known_handles=None,
+                 stop_event: threading.Event = None):
         self.crawler = crawler
         self.repo = repository
         self.ai_reindex_url = os.getenv("AI_SERVER_URL_REINDEX")
         self.chunk_size = 50
         self.log_sender = log_sender
+        self.log_prefix = log_prefix
+        # None — парсить всё; set — пропускать материалы с этими handle
+        self.known_handles = known_handles
+        self.stop_event = stop_event or threading.Event()
+        self.current_node = None
+        self.stats = {
+            "nodes": 0,
+            "processed": 0,
+            "saved": 0,
+            "skipped_known": 0,
+            "skipped_no_file": 0,
+            "failed_batches": 0,
+        }
 
     def _log(self, message: str, level: str = "INFO"):
+        text = f"{self.log_prefix} {message}" if self.log_prefix else message
         if level == "ERROR":
-            logger.error(message)
+            logger.error(text)
         else:
-            logger.info(message)
-        self.log_sender.send_log(message, level)
+            logger.info(text)
+        self.log_sender.send_log(text, level)
 
-    def run_full_sync(self):
-        self._log("Запуск парсера электронной библиотеки...")
+    @property
+    def stopped(self) -> bool:
+        return self.stop_event.is_set()
 
-        main_html = self.crawler.fetch_page(self.crawler.base_url)
-        if not main_html:
-            self._log("Не удалось загрузить главную страницу", "ERROR")
+    def _flush(self, batch):
+        if not batch:
             return
+        if self.repo.save_materials_batch(batch):
+            self.stats["saved"] += len(batch)
+        else:
+            self.stats["failed_batches"] += 1
+            self._log(f"Не удалось записать пакет из {len(batch)} материалов", "ERROR")
+        batch.clear()
 
-        roots = self.crawler.parse_root_sections(main_html)
-        if not roots:
-            self._log("Корневые разделы на главной не найдены", "ERROR")
-            return
-
-        self._log(f"Найдено корневых разделов: {len(roots)}")
-        for root in roots:
-            self._log(f"Раздел: {root['name']} ({root['url']})")
-            self._process_root_section(root)
-
-        self._log("Парсинг завершен")
-
-    def _process_root_section(self, root: dict):
+    def process_root_section(self, root: dict) -> bool:
+        """Возвращает False, если раздел не удалось загрузить."""
         root_html = self.crawler.fetch_page(root["url"])
         if not root_html:
             self._log(f"Не удалось загрузить раздел {root['name']}", "ERROR")
-            return
+            return False
 
         # L1 = faculty (префикс корня для уникальности имён)
         faculties = self.crawler.parse_communities(root_html)
-        self._log(f"[{root['name']}] узлов L1: {len(faculties)}")
+        self._log(f"Узлов L1 в разделе: {len(faculties)}")
 
         for fac_data in faculties:
+            if self.stopped:
+                return True
+
             faculty_name = _clip(f"{root['name']} / {fac_data['name']}")
             faculty_id = self.repo.save_faculty(faculty_name, fac_data["url"])
             if not faculty_id:
@@ -99,6 +118,8 @@ class ParserService:
                 continue
 
             for dept_data in departments:
+                if self.stopped:
+                    return True
                 dept_name = _clip(f"{fac_data['name']} / {dept_data['name']}")
                 self._process_department_materials(
                     dept_name=dept_name,
@@ -106,22 +127,43 @@ class ParserService:
                     count=dept_data.get("count", 0),
                     faculty_id=faculty_id,
                 )
+        return True
 
     def _process_department_materials(self, dept_name, dept_url, count, faculty_id):
         dept_id = self.repo.save_department(dept_name, dept_url, faculty_id)
         if not dept_id:
             return
 
+        self.current_node = dept_name
+        self.stats["nodes"] += 1
         self._log(f"Кафедра/узел: {dept_name} (материалов: {count})")
 
         materials_list = self.crawler.get_all_materials(dept_url, count)
+
+        if self.known_handles is not None:
+            new_materials = [
+                m for m in materials_list
+                if extract_handle(m.get("relative_path") or m["url"]) not in self.known_handles
+            ]
+            already = len(materials_list) - len(new_materials)
+            self.stats["skipped_known"] += already
+            if already:
+                self._log(f"Уже в БД: {already}, новых к обработке: {len(new_materials)}")
+            materials_list = new_materials
+            if not materials_list:
+                return
+
         materials_batch = []
         skipped_no_file = 0
 
         for index, mat_info in enumerate(materials_list, start=1):
+            if self.stopped:
+                break
+
             mat_html = self.crawler.fetch_page(mat_info["url"])
             if not mat_html:
                 continue
+            self.stats["processed"] += 1
 
             metadata = self.crawler.parse_material_metadata(mat_html)
             if not metadata.get("file_link"):
@@ -154,12 +196,12 @@ class ParserService:
 
             if len(materials_batch) >= self.chunk_size:
                 self._log(f"Достигнут лимит пакета ({self.chunk_size}). Запись в БД...")
-                self.repo.save_materials_batch(materials_batch)
-                materials_batch.clear()
+                self._flush(materials_batch)
 
         if materials_batch:
             self._log(f"Запись пакета из {len(materials_batch)} материалов в БД...")
-            self.repo.save_materials_batch(materials_batch)
+            self._flush(materials_batch)
 
+        self.stats["skipped_no_file"] += skipped_no_file
         if skipped_no_file:
             self._log(f"Пропущено без файла: {skipped_no_file}")
