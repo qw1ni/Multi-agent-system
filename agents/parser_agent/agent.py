@@ -134,10 +134,11 @@ class ParserAgent:
                 data={},
             ))
 
-    def start_parsing(self, mode: str = "full") -> AgentResult:
-        """Запускает рой парсинга: full — с нуля, incremental — только новые материалы."""
+    def start_parsing(self, mode: str = "full", sections: Optional[List[str]] = None) -> AgentResult:
+        """Запускает рой парсинга: full — с нуля, incremental — только новые материалы.
+        sections — только эти корневые разделы (None — все)."""
         try:
-            response = self._request("POST", "/api/parser/start", json={"mode": mode})
+            response = self._request("POST", "/api/parser/start", json={"mode": mode, "sections": sections or None})
             response.raise_for_status()
             payload = response.json()
             status = payload.get("status")
@@ -212,9 +213,9 @@ class ParserAgent:
         if action in ("sections", "get_sections"):
             return self.get_sections()
         if action in ("start", "start_parsing", "parse"):
-            return self.start_parsing(mode="full")
+            return self.start_parsing(mode="full", sections=sections)
         if action in ("start-new", "start_new", "parse_new", "incremental"):
-            return self.start_parsing(mode="incremental")
+            return self.start_parsing(mode="incremental", sections=sections)
         if action in ("stop", "stop_parsing"):
             return self.stop_parsing()
         if action in ("download", "download_files"):

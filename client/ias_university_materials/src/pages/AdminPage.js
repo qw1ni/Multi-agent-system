@@ -296,10 +296,20 @@ const AdminPage = () => {
         return () => clearInterval(timer);
     }, [parserRunning, refreshParserStatus]);
 
+    const allSectionsSelected = downloadSections.every((s) => selectedSections.includes(s.id));
+    const parseScopeLabel = allSectionsSelected || selectedSections.length === 0
+        ? ''
+        : ` (${selectedSections.length} из ${downloadSections.length})`;
+
     const handleStartParser = async (mode) => {
+        if (selectedSections.length === 0) {
+            setSnackbar({ open: true, message: 'Выберите хотя бы один раздел для парсинга', severity: 'error' });
+            return;
+        }
         try {
             setParserLoading(true);
-            const result = await adminService.runLibraryParser(mode);
+            // Все отмечены — null, чтобы рой взял и новые разделы, которые появятся на сайте
+            const result = await adminService.runLibraryParser(mode, allSectionsSelected ? null : selectedSections);
             if (result.status === 'accepted' || result.status === 'busy') {
                 setParserRunning(true);
             }
@@ -644,18 +654,18 @@ const AdminPage = () => {
                                 <Button
                                     variant="contained"
                                     onClick={() => handleStartParser('incremental')}
-                                    disabled={parserLoading || parserRunning || downloadLoading}
+                                    disabled={parserLoading || parserRunning || downloadLoading || selectedSections.length === 0}
                                     sx={{ ...actionButtonSx, bgcolor: '#0056b3' }}
                                 >
-                                    {parserLoading ? 'Запуск...' : 'Парсинг новых материалов'}
+                                    {parserLoading ? 'Запуск...' : `Парсинг новых материалов${parseScopeLabel}`}
                                 </Button>
                                 <Button
                                     variant="contained"
                                     onClick={() => handleStartParser('full')}
-                                    disabled={parserLoading || parserRunning || downloadLoading}
+                                    disabled={parserLoading || parserRunning || downloadLoading || selectedSections.length === 0}
                                     sx={{ ...actionButtonSx, bgcolor: '#0056b3' }}
                                 >
-                                    {parserLoading ? 'Запуск...' : 'Парсинг с нуля'}
+                                    {parserLoading ? 'Запуск...' : `Парсинг с нуля${parseScopeLabel}`}
                                 </Button>
                                 <Button
                                     variant="outlined"
@@ -693,8 +703,27 @@ const AdminPage = () => {
                                 </Button>
                             </Box>
                             <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5, fontWeight: 'bold', color: 'text.secondary' }}>
-                                Разделы для скачивания
+                                Разделы для парсинга и скачивания
                             </Typography>
+                            <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
+                                <Button
+                                    size="small"
+                                    sx={{ textTransform: 'none', p: 0, minWidth: 0 }}
+                                    onClick={() => setSelectedSections(downloadSections.map((s) => s.id))}
+                                    disabled={downloadLoading || allSectionsSelected}
+                                >
+                                    Выбрать все
+                                </Button>
+                                <Typography variant="caption" sx={{ color: 'text.disabled' }}>·</Typography>
+                                <Button
+                                    size="small"
+                                    sx={{ textTransform: 'none', p: 0, minWidth: 0 }}
+                                    onClick={() => setSelectedSections([])}
+                                    disabled={downloadLoading || selectedSections.length === 0}
+                                >
+                                    Снять все
+                                </Button>
+                            </Box>
                             <FormGroup>
                                 {downloadSections.map((section) => (
                                     <FormControlLabel

@@ -24,6 +24,10 @@ class StartParserRequest(BaseModel):
         default="full",
         description="full — парсить всё с нуля, incremental — пропускать материалы, уже есть в БД.",
     )
+    sections: Optional[List[str]] = Field(
+        default=None,
+        description="Корневые разделы для парсинга (например «Факультеты», «РФ 3++»). Пусто / null = все.",
+    )
 
 
 class DownloadFilesRequest(BaseModel):
@@ -71,19 +75,18 @@ def _run_in_thread(target, *args, lock: threading.Lock = None):
 
 @router.post("/start")
 async def start_parser_endpoint(body: StartParserRequest = StartParserRequest()):
-    if not orchestrator.start(body.mode):
+    sections = [s for s in (body.sections or []) if s and s.strip()] or None
+    if not orchestrator.start(body.mode, sections):
         return {
             "status": "busy",
             "message": "Рой парсинга уже работает"
         }
 
+    what = "парсинг новых материалов" if body.mode == "incremental" else "парсинг с нуля"
+    where = f" — разделы: {', '.join(sections)}" if sections else " — все разделы"
     return {
         "status": "accepted",
-        "message": (
-            "Рой агентов запущен: парсинг новых материалов"
-            if body.mode == "incremental"
-            else "Рой агентов запущен: парсинг с нуля"
-        )
+        "message": f"Рой агентов запущен: {what}{where}",
     }
 
 

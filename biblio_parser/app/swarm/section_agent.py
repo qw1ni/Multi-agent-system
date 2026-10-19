@@ -28,6 +28,7 @@ class SectionParserAgent:
     DONE = "done"
     STOPPED = "stopped"
     FAILED = "failed"
+    RESTARTING = "restarting"
 
     def __init__(self, agent_id: int, root: dict, stop_event: threading.Event, known_handles=None):
         self.agent_id = agent_id
@@ -41,6 +42,9 @@ class SectionParserAgent:
         self.started_at = None
         self.finished_at = None
         self.service = None
+        self.restarts = 0
+        self.stats = {}
+        self.done_handles = set()
 
     @property
     def log_prefix(self) -> str:
@@ -52,7 +56,9 @@ class SectionParserAgent:
             return self
 
         self.state = self.RUNNING
-        self.started_at = _now()
+        self.error = None
+        self.started_at = self.started_at or _now()
+        self.finished_at = None
         db = DatabaseManager()
         try:
             if not db.conn:
@@ -69,8 +75,14 @@ class SectionParserAgent:
                 log_prefix=self.log_prefix,
                 known_handles=self.known_handles,
                 stop_event=self.stop_event,
+                stats=self.stats,
+                done_handles=self.done_handles,
             )
-            self.service._log("Начинаю работу")
+            if self.restarts:
+                self.service._log(f"Перезапуск №{self.restarts}: продолжаю, уже записанные "
+                                  f"материалы ({len(self.done_handles)}) пропущу")
+            else:
+                self.service._log("Начинаю работу")
 
             loaded = self.service.process_root_section(self.root)
             if not loaded:
@@ -90,15 +102,15 @@ class SectionParserAgent:
         return self
 
     def snapshot(self) -> dict:
-        stats = dict(self.service.stats) if self.service else {}
         return {
             "id": self.agent_id,
             "name": self.name,
             "section": self.section,
             "state": self.state,
             "current_node": self.service.current_node if self.service else None,
-            "stats": stats,
+            "stats": dict(self.stats),
             "error": self.error,
+            "restarts": self.restarts,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
         }

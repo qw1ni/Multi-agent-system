@@ -25,7 +25,8 @@ export const downloadBackup = asyncHandler(async (req, res) => {
 export const runParser = asyncHandler(async (req, res) => {
   const PARSER_SERVER_URL = process.env.PARSER_SERVER_URL;
   const mode = req.body?.mode === 'incremental' ? 'incremental' : 'full';
-  const parserResponse = await axios.post(`${PARSER_SERVER_URL}/api/parser/start`, { mode });
+  const sections = Array.isArray(req.body?.sections) && req.body.sections.length > 0 ? req.body.sections : null;
+  const parserResponse = await axios.post(`${PARSER_SERVER_URL}/api/parser/start`, { mode, sections });
   res.status(200).json(parserResponse.data);
 });
 

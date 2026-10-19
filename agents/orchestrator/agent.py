@@ -58,6 +58,10 @@ class OrchestratorAgent:
             result = self.parser.start_parsing(mode="full")
         elif command.intent == "start_new":
             result = self.parser.start_parsing(mode="incremental")
+        elif command.intent == "start_sections":
+            result = self.parser.start_parsing(mode="full", sections=command.args["sections"])
+        elif command.intent == "start_new_sections":
+            result = self.parser.start_parsing(mode="incremental", sections=command.args["sections"])
         elif command.intent == "stop":
             result = self.parser.stop_parsing()
         elif command.intent == "swarm":

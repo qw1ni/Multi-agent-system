@@ -18,7 +18,8 @@ from app.swarm.section_agent import SectionParserAgent
 logger = logging.getLogger(__name__)
 
 LOG_PREFIX = "[Оркестратор]"
-STAT_KEYS = ("nodes", "processed", "saved", "skipped_known", "skipped_no_file", "failed_batches")
+STAT_KEYS = ("nodes", "processed", "saved", "skipped_known", "skipped_no_file",
+             "failed_batches", "failed_materials")
 
 
 def _now():
@@ -32,6 +33,7 @@ class ParsingOrchestrator:
         self._thread = None
         self._agents = []
         self.mode = None
+        self.sections = None
         self.started_at = None
         self.finished_at = None
         self.last_error = None
@@ -47,13 +49,14 @@ class ParsingOrchestrator:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, mode: str = "full") -> bool:
+    def start(self, mode: str = "full", sections=None) -> bool:
         with self._state_lock:
             if self.is_running():
                 return False
             self._stop_event.clear()
             self._agents = []
             self.mode = mode
+            self.sections = list(sections) if sections else None
             self.started_at = _now()
             self.finished_at = None
             self.last_error = None
@@ -121,6 +124,12 @@ class ParsingOrchestrator:
             self._log("Корневые разделы на главной не найдены", "ERROR")
             return
 
+        if self.sections:
+            roots = self._select_sections(roots, self.sections)
+            if not roots:
+                self.last_error = "выбранные разделы не найдены на сайте"
+                return
+
         self._agents = [
             SectionParserAgent(i, root, self._stop_event, known_handles)
             for i, root in enumerate(roots, start=1)
@@ -133,24 +142,73 @@ class ParsingOrchestrator:
             self._log(f"{agent.name} → раздел «{agent.section}»")
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="swarm-agent") as pool:
-            futures = [pool.submit(agent.run) for agent in self._agents]
+            futures = [pool.submit(self._supervise, agent) for agent in self._agents]
             for future in as_completed(futures):
                 agent = future.result()
                 self._report_agent(agent)
 
         self._report_total()
 
+    def _select_sections(self, roots, wanted):
+        def norm(name):
+            return " ".join(str(name).split()).casefold()
+
+        by_name = {norm(root["name"]): root for root in roots}
+        selected, missing = [], []
+        for name in wanted:
+            root = by_name.get(norm(name))
+            if root is None:
+                missing.append(name)
+            elif root not in selected:
+                selected.append(root)
+
+        if missing:
+            available = ", ".join(root["name"] for root in roots)
+            self._log(f"На сайте нет разделов: {', '.join(missing)}. Доступны: {available}",
+                      "ERROR" if not selected else "WARNING")
+        if selected:
+            self._log(f"Выбраны разделы: {', '.join(root['name'] for root in selected)} "
+                      f"(из {len(roots)} на сайте)")
+        return selected
+
+    def _supervise(self, agent: SectionParserAgent) -> SectionParserAgent:
+        """Запускает агента и перезапускает его после падения, пока не кончатся попытки."""
+        max_restarts = max(0, int(os.getenv("SWARM_AGENT_MAX_RESTARTS", "3")))
+        base_delay = max(0.0, float(os.getenv("SWARM_AGENT_RESTART_DELAY", "5")))
+
+        while True:
+            agent.run()
+            if agent.state != SectionParserAgent.FAILED or self._stop_event.is_set():
+                return agent
+            if agent.restarts >= max_restarts:
+                self._log(f"{agent.name} («{agent.section}») упал {agent.restarts + 1} раз — "
+                          f"больше не перезапускаю. Последняя ошибка: {agent.error}", "ERROR")
+                return agent
+
+            agent.restarts += 1
+            delay = base_delay * agent.restarts
+            agent.state = SectionParserAgent.RESTARTING
+            self._log(f"{agent.name} («{agent.section}») упал: {agent.error}. "
+                      f"Перезапуск {agent.restarts}/{max_restarts} через {delay:g} с", "WARNING")
+            if self._stop_event.wait(delay):
+                agent.state = SectionParserAgent.STOPPED
+                return agent
+
     def _report_agent(self, agent: SectionParserAgent):
         stats = agent.snapshot()["stats"]
         details = (f"новых в БД: {stats.get('saved', 0)}, "
                    f"обработано: {stats.get('processed', 0)}, "
                    f"пропущено (уже в БД): {stats.get('skipped_known', 0)}")
+        if stats.get("failed_materials"):
+            details += f", пропущено из-за ошибок разбора: {stats['failed_materials']}"
+        if agent.restarts:
+            details += f", перезапусков: {agent.restarts}"
         if agent.state == SectionParserAgent.DONE:
             self._log(f"{agent.name} («{agent.section}») закончил: {details}", "SUCCESS")
         elif agent.state == SectionParserAgent.STOPPED:
             self._log(f"{agent.name} («{agent.section}») остановлен: {details}", "WARNING")
         else:
-            self._log(f"{agent.name} («{agent.section}») завершился с ошибкой: {agent.error}", "ERROR")
+            self._log(f"{agent.name} («{agent.section}») завершился с ошибкой: {agent.error}; {details}", "ERROR")
 
     def _report_total(self):
         totals = self._totals()
@@ -178,6 +236,7 @@ class ParsingOrchestrator:
             "running": self.is_running(),
             "stopping": self.is_running() and self._stop_event.is_set(),
             "mode": self.mode,
+            "sections": self.sections,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "last_error": self.last_error,

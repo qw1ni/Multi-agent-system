@@ -169,6 +169,8 @@ class SiteCrawler:
             label = cells[0].get_text(strip=True).lower()
             raw_text = cells[1].get_text(strip=True)
             values = [v.strip() for v in raw_text.split("|") if v.strip()]
+            if not values:
+                continue
 
             if "author" in label:
                 metadata["creator"].extend(values)

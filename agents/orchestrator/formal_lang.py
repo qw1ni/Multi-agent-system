@@ -27,6 +27,8 @@ HELP_TEXT = """Формальный язык команд (пока только
   LIST SECTIONS | ПОКАЗАТЬ РАЗДЕЛЫ | РАЗДЕЛЫ
   START PARSING | ЗАПУСТИТЬ ПАРСИНГ | ПАРСИНГ        — рой агентов, с нуля
   START PARSING NEW | ПАРСИНГ НОВЫХ                  — рой агентов, только новые
+  PARSE SECTION <имя>[, <имя>] | ПАРСИНГ РАЗДЕЛ <имя>             — с нуля, только эти разделы
+  PARSE NEW SECTION <имя>[, <имя>] | ПАРСИНГ НОВЫХ РАЗДЕЛ <имя>   — только новые, только эти разделы
   STOP PARSING | ОСТАНОВИТЬ ПАРСИНГ
   SWARM | РОЙ                                        — состояние агентов роя
   DOWNLOAD ALL | СКАЧАТЬ ВСЕ
@@ -35,6 +37,7 @@ HELP_TEXT = """Формальный язык команд (пока только
 Примеры:
   STATUS
   START PARSING
+  ПАРСИНГ НОВЫХ РАЗДЕЛ Факультеты, РФ 3++
   DOWNLOAD SECTION ОКРБ 011-2009
   СКАЧАТЬ РАЗДЕЛ Факультеты
 """
@@ -98,6 +101,19 @@ def parse_formal_command(text: str) -> FormalCommand:
 
     if upper in {"DOWNLOAD ALL", "DOWNLOAD", "СКАЧАТЬ ВСЕ", "СКАЧАТЬ"}:
         return FormalCommand(intent="download_all", args={}, raw=raw)
+
+    m = re.match(
+        r"^(?:PARSE(?P<new> NEW)? SECTIONS?|ПАРСИНГ(?P<new_ru> НОВЫХ)? РАЗДЕЛ(?:Ы|А)?)\s+(?P<names>.+)$",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        sections = [s.strip().strip("\"'") for s in m.group("names").split(",")]
+        return FormalCommand(
+            intent="start_new_sections" if (m.group("new") or m.group("new_ru")) else "start_sections",
+            args={"sections": [s for s in sections if s]},
+            raw=raw,
+        )
 
     m = re.match(
         r"^(?:DOWNLOAD SECTION|СКАЧАТЬ РАЗДЕЛ)\s+(.+)$",

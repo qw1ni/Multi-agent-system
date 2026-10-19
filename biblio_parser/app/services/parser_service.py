@@ -37,7 +37,8 @@ class ParserService:
 
     def __init__(self, crawler, repository, log_sender,
                  log_prefix: str = "", known_handles=None,
-                 stop_event: threading.Event = None):
+                 stop_event: threading.Event = None,
+                 stats: dict = None, done_handles: set = None):
         self.crawler = crawler
         self.repo = repository
         self.ai_reindex_url = os.getenv("AI_SERVER_URL_REINDEX")
@@ -48,14 +49,13 @@ class ParserService:
         self.known_handles = known_handles
         self.stop_event = stop_event or threading.Event()
         self.current_node = None
-        self.stats = {
-            "nodes": 0,
-            "processed": 0,
-            "saved": 0,
-            "skipped_known": 0,
-            "skipped_no_file": 0,
-            "failed_batches": 0,
-        }
+        # stats и done_handles передаёт агент, чтобы после перезапуска счётчики
+        # продолжались, а уже записанные материалы не обрабатывались повторно
+        self.stats = stats if stats is not None else {}
+        for key in ("nodes", "processed", "saved", "skipped_known",
+                    "skipped_no_file", "failed_batches", "failed_materials"):
+            self.stats.setdefault(key, 0)
+        self.done_handles = done_handles if done_handles is not None else set()
 
     def _log(self, message: str, level: str = "INFO"):
         text = f"{self.log_prefix} {message}" if self.log_prefix else message
@@ -65,19 +65,25 @@ class ParserService:
             logger.info(text)
         self.log_sender.send_log(text, level)
 
+    @staticmethod
+    def _handle(mat_info: dict):
+        return extract_handle(mat_info.get("relative_path") or mat_info["url"])
+
     @property
     def stopped(self) -> bool:
         return self.stop_event.is_set()
 
-    def _flush(self, batch):
+    def _flush(self, batch, handles):
         if not batch:
             return
         if self.repo.save_materials_batch(batch):
             self.stats["saved"] += len(batch)
+            self.done_handles.update(h for h in handles if h)
         else:
             self.stats["failed_batches"] += 1
             self._log(f"Не удалось записать пакет из {len(batch)} материалов", "ERROR")
         batch.clear()
+        handles.clear()
 
     def process_root_section(self, root: dict) -> bool:
         """Возвращает False, если раздел не удалось загрузить."""
@@ -141,19 +147,20 @@ class ParserService:
         materials_list = self.crawler.get_all_materials(dept_url, count)
 
         if self.known_handles is not None:
-            new_materials = [
-                m for m in materials_list
-                if extract_handle(m.get("relative_path") or m["url"]) not in self.known_handles
-            ]
+            new_materials = [m for m in materials_list if self._handle(m) not in self.known_handles]
             already = len(materials_list) - len(new_materials)
             self.stats["skipped_known"] += already
             if already:
                 self._log(f"Уже в БД: {already}, новых к обработке: {len(new_materials)}")
             materials_list = new_materials
-            if not materials_list:
-                return
+
+        if self.done_handles:
+            materials_list = [m for m in materials_list if self._handle(m) not in self.done_handles]
+        if not materials_list:
+            return
 
         materials_batch = []
+        batch_handles = []
         skipped_no_file = 0
 
         for index, mat_info in enumerate(materials_list, start=1):
@@ -165,7 +172,13 @@ class ParserService:
                 continue
             self.stats["processed"] += 1
 
-            metadata = self.crawler.parse_material_metadata(mat_html)
+            try:
+                metadata = self.crawler.parse_material_metadata(mat_html)
+            except Exception as e:
+                logger.exception(f"{self.log_prefix} не удалось разобрать {mat_info['url']}")
+                self.stats["failed_materials"] += 1
+                self._log(f"Пропущен материал (ошибка разбора: {e}): {mat_info['url']}", "WARNING")
+                continue
             if not metadata.get("file_link"):
                 skipped_no_file += 1
                 continue
@@ -190,17 +203,18 @@ class ParserService:
                 metadata.get("spec", []),
             )
             materials_batch.append(material_tuple)
+            batch_handles.append(self._handle(mat_info))
 
             if index % 10 == 0 or index == len(materials_list):
                 self._log(f"Собрано метаданных: {index} из {len(materials_list)}")
 
             if len(materials_batch) >= self.chunk_size:
                 self._log(f"Достигнут лимит пакета ({self.chunk_size}). Запись в БД...")
-                self._flush(materials_batch)
+                self._flush(materials_batch, batch_handles)
 
         if materials_batch:
             self._log(f"Запись пакета из {len(materials_batch)} материалов в БД...")
-            self._flush(materials_batch)
+            self._flush(materials_batch, batch_handles)
 
         self.stats["skipped_no_file"] += skipped_no_file
         if skipped_no_file:

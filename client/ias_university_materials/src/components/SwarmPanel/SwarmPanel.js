@@ -11,6 +11,7 @@ const STATE_VIEW = {
     done: { label: 'Готово', color: 'success' },
     stopped: { label: 'Остановлен', color: 'warning' },
     failed: { label: 'Ошибка', color: 'error' },
+    restarting: { label: 'Перезапуск', color: 'secondary' },
 };
 
 const MODE_LABEL = {
@@ -63,13 +64,18 @@ const SwarmPanel = ({ swarm }) => {
                                     <TableCell>{agent.name}</TableCell>
                                     <TableCell>{agent.section}</TableCell>
                                     <TableCell>
-                                        <Chip size="small" label={view.label} color={view.color} title={agent.error || ''} />
+                                        <Chip
+                                            size="small"
+                                            label={agent.restarts ? `${view.label} · перезапусков: ${agent.restarts}` : view.label}
+                                            color={view.color}
+                                            title={agent.error || ''}
+                                        />
                                     </TableCell>
                                     <TableCell
                                         sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                         title={agent.current_node || ''}
                                     >
-                                        {agent.state === 'failed' ? (agent.error || '—') : (agent.current_node || '—')}
+                                        {['failed', 'restarting'].includes(agent.state) ? (agent.error || '—') : (agent.current_node || '—')}
                                     </TableCell>
                                     <TableCell align="right">{stats.saved || 0}</TableCell>
                                     <TableCell align="right">{stats.processed || 0}</TableCell>

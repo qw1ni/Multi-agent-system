@@ -7,9 +7,9 @@ const adminService = {
         });
         return response.data;
     },
-    runLibraryParser: async (mode = 'full') => {
+    runLibraryParser: async (mode = 'full', sections = null) => {
         try {
-            const response = await axiosInstance.post('/admin/run_parser', { mode });
+            const response = await axiosInstance.post('/admin/run_parser', { mode, sections });
             return response.data;
         } catch (error) {
             throw error;
