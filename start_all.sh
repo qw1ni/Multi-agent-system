@@ -288,7 +288,7 @@ usage() {
   status    показать, что запущено
   parse     запустить парсинг через parser_agent (нужен работающий парсер)
   sections  разделы через parser_agent
-  convert   PDF/DOCX/DOC → Markdown + JSON (doc_converter, Docling)
+  convert   PDF/DOCX/DOC → Markdown + JSON + чанки для LLM (рой агентов по разделам; --agents N)
   convert-status  сколько файлов сконвертировано
 
 Примеры:

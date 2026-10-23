@@ -2,10 +2,11 @@
 Запись результатов конвертации.
 
 <CONVERTED_DIR>/<раздел>/<имя файла>/
-    document.md    — Markdown для чтения человеком и простых LLM-промптов
+    document.md    — очищенный Markdown для чтения человеком и длинного контекста LLM
     document.json  — DoclingDocument без потерь (структура, таблицы, страницы, координаты);
-                     из него позже режутся чанки для LLM (docling HybridChunker)
-    meta.json      — что, из чего, чем и с каким результатом сконвертировано
+                     из него можно пересобрать чанки без повторного распознавания
+    chunks.jsonl   — чанки для RAG / эмбеддингов, по одному JSON на строку (см. converter.llm)
+    meta.json      — что, из чего, чем и с каким результатом сконвертировано + quality
 
 Пишем во временную папку и переименовываем целиком, чтобы прерванный агент
 не оставил полурезультат.
@@ -15,13 +16,18 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Optional
 
 from converter.engine import EngineResult
-from converter.tasks import META_FILE, ConversionTask
-
-MARKDOWN_FILE = "document.md"
-JSON_FILE = "document.json"
-META_SCHEMA_VERSION = 1
+from converter.llm import LlmPayload
+from converter.tasks import (
+    CHUNKS_FILE,
+    JSON_FILE,
+    MARKDOWN_FILE,
+    META_FILE,
+    META_SCHEMA_VERSION,
+    ConversionTask,
+)
 
 
 def _replace_dir(tmp_dir: Path, target: Path):
@@ -30,7 +36,8 @@ def _replace_dir(tmp_dir: Path, target: Path):
     os.replace(tmp_dir, target)
 
 
-def write_result(task: ConversionTask, result: EngineResult, meta: dict) -> dict:
+def write_result(task: ConversionTask, result: EngineResult, meta: dict,
+                 payload: Optional[LlmPayload] = None) -> dict:
     task.output_dir.parent.mkdir(parents=True, exist_ok=True)
     tmp_dir = task.output_dir.with_name(f".{task.output_dir.name}.tmp-{os.getpid()}")
     if tmp_dir.exists():
@@ -39,18 +46,24 @@ def write_result(task: ConversionTask, result: EngineResult, meta: dict) -> dict
 
     try:
         outputs = {}
-        if result.document is not None:
-            markdown = result.document.export_to_markdown()
-            (tmp_dir / MARKDOWN_FILE).write_text(markdown, encoding="utf-8")
+        warnings = []
+        if result.document is not None and payload is not None:
+            (tmp_dir / MARKDOWN_FILE).write_text(payload.markdown, encoding="utf-8")
             with open(tmp_dir / JSON_FILE, "w", encoding="utf-8") as f:
                 json.dump(result.document.export_to_dict(), f, ensure_ascii=False)
-            outputs = {"markdown": MARKDOWN_FILE, "json": JSON_FILE}
-            meta["stats"] = {"pages": result.pages, "markdown_chars": len(markdown)}
+            with open(tmp_dir / CHUNKS_FILE, "w", encoding="utf-8") as f:
+                for chunk in payload.chunks:
+                    f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
+            outputs = {"markdown": MARKDOWN_FILE, "json": JSON_FILE, "chunks": CHUNKS_FILE}
+            meta["stats"] = payload.stats
+            meta["quality"] = payload.quality
+            warnings = payload.warnings
 
         meta.update({
             "schema_version": META_SCHEMA_VERSION,
             "status": result.status,
             "errors": result.errors,
+            "warnings": warnings,
             "outputs": outputs,
         })
         with open(tmp_dir / META_FILE, "w", encoding="utf-8") as f:

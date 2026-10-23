@@ -5,8 +5,86 @@ import {
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
 import TransformIcon from '@mui/icons-material/Transform';
+import HubIcon from '@mui/icons-material/Hub';
 
 import adminService from '../../services/adminService';
+
+const AGENT_STATE_VIEW = {
+    waiting: { label: 'Ожидает', color: 'default' },
+    running: { label: 'Работает', color: 'primary' },
+    done: { label: 'Готово', color: 'success' },
+    stopped: { label: 'Остановлен', color: 'warning' },
+    failed: { label: 'Ошибка', color: 'error' },
+    restarting: { label: 'Перезапуск', color: 'secondary' },
+};
+
+const ConverterSwarmTable = ({ swarm, running }) => {
+    if (!swarm || !swarm.agents || swarm.agents.length === 0) {
+        return null;
+    }
+    return (
+        <Box sx={{ mb: 2 }}>
+            <Box display="flex" alignItems="center" gap={1} mb={1} flexWrap="wrap">
+                <HubIcon fontSize="small" sx={{ color: '#0056b3' }} />
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+                    Рой агентов конвертации — {running ? 'работает' : 'завершён'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
+                    Агентов: {swarm.agents.length} · одновременно: {swarm.max_agents}
+                </Typography>
+            </Box>
+            <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: '8px' }}>
+                <Table size="small">
+                    <TableHead sx={{ bgcolor: '#f8f9fa' }}>
+                        <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Агент</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Раздел</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Статус</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Сейчас конвертирует</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 'bold' }}>Файлов</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 'bold' }}>Ошибок</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 'bold' }}>Чанков</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {swarm.agents.map((agent) => {
+                            const view = AGENT_STATE_VIEW[agent.state] || { label: agent.state, color: 'default' };
+                            const stats = agent.stats || {};
+                            const current = ['failed', 'restarting'].includes(agent.state)
+                                ? agent.error
+                                : agent.current_file;
+                            return (
+                                <TableRow key={agent.id}>
+                                    <TableCell>{agent.name}</TableCell>
+                                    <TableCell>{agent.section}</TableCell>
+                                    <TableCell>
+                                        <Chip
+                                            size="small"
+                                            label={agent.restarts ? `${view.label} · перезапусков: ${agent.restarts}` : view.label}
+                                            color={view.color}
+                                            title={agent.error || ''}
+                                        />
+                                    </TableCell>
+                                    <TableCell
+                                        sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                        title={current || ''}
+                                    >
+                                        {current || '—'}
+                                    </TableCell>
+                                    <TableCell align="right">{agent.done}/{agent.total}</TableCell>
+                                    <TableCell align="right" sx={{ color: stats.failed ? 'error.main' : undefined }}>
+                                        {stats.failed || 0}
+                                    </TableCell>
+                                    <TableCell align="right">{stats.chunks || 0}</TableCell>
+                                </TableRow>
+                            );
+                        })}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        </Box>
+    );
+};
 
 const actionButtonSx = {
     textTransform: 'none',
@@ -125,7 +203,7 @@ const ConverterPanel = ({ onNotify }) => {
                         Конвертация документов
                     </Typography>
                     <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-                        PDF / DOCX / DOC → Markdown + JSON (Docling)
+                        PDF / DOCX / DOC → Markdown + JSON + чанки для LLM (Docling, рой агентов по разделам)
                     </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                         <Button
@@ -230,6 +308,8 @@ const ConverterPanel = ({ onNotify }) => {
                         </Box>
                     )}
                     {running && !progress && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
+
+                    <ConverterSwarmTable swarm={status?.swarm} running={running} />
 
                     <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: '8px' }}>
                         <Table size="small">

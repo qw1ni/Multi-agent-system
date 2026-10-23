@@ -1,11 +1,16 @@
 """
-CLI конвертера документов (PDF / DOCX / DOC → Markdown + JSON).
+CLI конвертера документов (PDF / DOCX / DOC → Markdown + JSON + чанки для LLM).
+
+Конвертирует рой агентов: каждый агент — отдельный процесс со своим разделом
+(большие разделы делятся на части между несколькими агентами).
 
 Примеры (из папки doc_converter):
   python -m converter status
   python -m converter run
-  python -m converter run --sections "ОКРБ 011-2009" --limit 5
+  python -m converter run --agents 3
+  python -m converter run --sections "ОКРБ 011-2009" "Факультеты" --limit 5
   python -m converter run --force
+  python -m converter manifest
 """
 
 import argparse
@@ -40,33 +45,46 @@ def cmd_status(config: ConverterConfig, sections) -> int:
 
 
 def cmd_run(config: ConverterConfig, sections, limit, force) -> int:
-    from converter.engine import DoclingEngine
-    from converter.service import ConversionService
+    from converter.swarm import ConversionSwarm
 
-    tasks = discover_tasks(config, sections)
-    service = ConversionService(DoclingEngine(config))
-    summary = service.run(tasks, force=force, limit=limit)
+    summary = ConversionSwarm(config).run(discover_tasks(config, sections), force=force, limit=limit)
     print(json.dumps(summary, ensure_ascii=False))
     return 1 if summary["failed"] else 0
+
+
+def cmd_manifest(config: ConverterConfig) -> int:
+    from converter.manifest import build_manifests
+
+    print(json.dumps(build_manifests(config), ensure_ascii=False))
+    return 0
 
 
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(description="Конвертация PDF/DOCX/DOC в Markdown и JSON (Docling)")
-    parser.add_argument("action", choices=["run", "status"], nargs="?", default="status")
+    parser = argparse.ArgumentParser(description="Конвертация PDF/DOCX/DOC в Markdown, JSON и чанки для LLM")
+    parser.add_argument("action", choices=["run", "status", "manifest"], nargs="?", default="status")
     parser.add_argument("--sections", nargs="*", default=None, help="Только эти разделы")
-    parser.add_argument("--limit", type=int, default=None, help="Сконвертировать не больше N файлов")
+    parser.add_argument("--limit", type=int, default=None, help="Взять не больше N файлов")
     parser.add_argument("--force", action="store_true", help="Переделать даже готовые")
     parser.add_argument("--no-ocr", action="store_true", help="Не распознавать сканы (быстрее)")
+    parser.add_argument("--agents", type=int, default=None, help="Сколько агентов роя работают одновременно")
+    parser.add_argument("--split", type=int, default=None,
+                        help="Делить раздел на части по N файлов между агентами (0 — не делить)")
     args = parser.parse_args(argv)
 
     config = ConverterConfig()
     if args.no_ocr:
         config.ocr_enabled = False
+    if args.agents is not None:
+        config.swarm_agents = args.agents
+    if args.split is not None:
+        config.swarm_split_size = args.split
 
     if args.action == "status":
         return cmd_status(config, args.sections)
+    if args.action == "manifest":
+        return cmd_manifest(config)
     return cmd_run(config, args.sections, args.limit, args.force)
 
 

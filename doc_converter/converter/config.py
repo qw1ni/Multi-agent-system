@@ -31,3 +31,15 @@ class ConverterConfig:
         default_factory=lambda: [x.strip() for x in os.getenv("OCR_LANGS", "ru,en").split(",") if x.strip()])
     device: str = field(default_factory=lambda: os.getenv("DOCLING_DEVICE", "auto"))
     num_threads: int = field(default_factory=lambda: int(os.getenv("DOCLING_THREADS", "4")))
+
+    # Чанки для LLM / RAG: токены считаются токенизатором модели эмбеддингов,
+    # иначе модель молча обрежет хвост чанка при векторизации
+    chunk_tokenizer: str = field(default_factory=lambda: os.getenv(
+        "CHUNK_TOKENIZER", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"))
+    chunk_max_tokens: int = field(default_factory=lambda: int(os.getenv("CHUNK_MAX_TOKENS", "128")))
+
+    # Рой: 0 = подобрать по числу ядер; у каждого агента свои модели Docling в памяти
+    swarm_agents: int = field(default_factory=lambda: int(os.getenv("CONVERTER_SWARM_AGENTS", "0")))
+    swarm_split_size: int = field(default_factory=lambda: int(os.getenv("CONVERTER_SWARM_SPLIT_SIZE", "200")))
+    agent_max_restarts: int = field(default_factory=lambda: int(os.getenv("CONVERTER_AGENT_MAX_RESTARTS", "3")))
+    file_timeout_sec: float = field(default_factory=lambda: float(os.getenv("CONVERTER_FILE_TIMEOUT", "1200")))

@@ -1,7 +1,7 @@
 """
 HTTP API конвертера для админки. Порт по умолчанию: 8004.
 
-  GET  /api/converter/status   — идёт ли конвертация, прогресс, сводка по разделам
+  GET  /api/converter/status   — идёт ли конвертация, прогресс, сводка по разделам, агенты роя
   POST /api/converter/start    — {"sections": [...] | null, "force": false}
   POST /api/converter/stop
 """
@@ -24,8 +24,7 @@ if str(_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_ROOT))
 
 from converter.config import ConverterConfig  # noqa: E402
-from converter.engine import DoclingEngine  # noqa: E402
-from converter.service import ConversionService  # noqa: E402
+from converter.swarm import ConversionSwarm  # noqa: E402
 from converter.tasks import discover_tasks, section_stats  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -50,7 +49,7 @@ def send_log(message: str, level: str = "INFO"):
 class ConversionManager:
     def __init__(self, config: ConverterConfig):
         self.config = config
-        self.engine = DoclingEngine(config)
+        self.swarm = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = None
@@ -83,7 +82,7 @@ class ConversionManager:
         if not self.is_running():
             return False
         self._stop_event.set()
-        send_log("Получена команда остановки — дождусь окончания текущего файла", "WARNING")
+        send_log("Получена команда остановки — агенты доделают текущие файлы и остановятся", "WARNING")
         return True
 
     def _set_progress(self, progress: dict):
@@ -92,9 +91,9 @@ class ConversionManager:
     def _run(self):
         try:
             label = ", ".join(self.sections) if self.sections else "все разделы"
-            send_log(f"Запуск конвертации ({label}{', с переделкой готовых' if self.force else ''})...")
-            service = ConversionService(self.engine, log=send_log)
-            service.run(
+            send_log(f"Запуск роя конвертации ({label}{', с переделкой готовых' if self.force else ''})...")
+            self.swarm = ConversionSwarm(self.config, log=send_log)
+            self.swarm.run(
                 discover_tasks(self.config, self.sections),
                 force=self.force,
                 stop_event=self._stop_event,
@@ -132,6 +131,7 @@ class ConversionManager:
             "finished_at": self.finished_at,
             "last_error": self.last_error,
             "sections": sections,
+            "swarm": self.swarm.status() if self.swarm else None,
         }
 
 

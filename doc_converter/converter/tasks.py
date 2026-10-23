@@ -16,7 +16,12 @@ from typing import Iterable, List, Optional
 from converter.config import ConverterConfig
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc"}
+MARKDOWN_FILE = "document.md"
+JSON_FILE = "document.json"
+CHUNKS_FILE = "chunks.jsonl"
 META_FILE = "meta.json"
+# 2 — появились chunks.jsonl и quality; результаты версии 1 доделываются из document.json
+META_SCHEMA_VERSION = 2
 MATERIAL_ID_RE = re.compile(r"^(\d+)_")
 
 
@@ -32,6 +37,10 @@ class ConversionTask:
         return int(match.group(1)) if match else None
 
     @property
+    def doc_id(self) -> str:
+        return f"{self.section}/{self.source.stem}"
+
+    @property
     def meta_path(self) -> Path:
         return self.output_dir / META_FILE
 
@@ -41,13 +50,20 @@ class ConversionTask:
         except (OSError, ValueError):
             return None
 
-    def is_done(self, source_sha256: str) -> bool:
+    def _converted_from(self, source_sha256: str) -> Optional[dict]:
         meta = self.read_meta()
-        return bool(
-            meta
-            and meta.get("status") in ("success", "partial")
-            and meta.get("source", {}).get("sha256") == source_sha256
-        )
+        if (meta and meta.get("status") in ("success", "partial")
+                and meta.get("source", {}).get("sha256") == source_sha256):
+            return meta
+        return None
+
+    def is_done(self, source_sha256: str) -> bool:
+        meta = self._converted_from(source_sha256)
+        return bool(meta and meta.get("schema_version", 1) >= META_SCHEMA_VERSION)
+
+    def has_reusable_document(self, source_sha256: str) -> bool:
+        """Docling уже распознал этот файл, устарел только слой для LLM — пересобираем без OCR."""
+        return bool(self._converted_from(source_sha256) and (self.output_dir / JSON_FILE).is_file())
 
 
 def file_sha256(path: Path) -> str:
