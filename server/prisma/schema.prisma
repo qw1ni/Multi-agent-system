@@ -121,6 +121,7 @@ model roles {
 model specialties {
   spec_code              String                   @id @db.VarChar(30)
   spec_name              String
+  curriculum_plans       curriculum_plans[]
   discipline_specialties discipline_specialties[]
   material_specialties   material_specialties[]
 }
@@ -174,8 +175,64 @@ model discipline_specialties {
 model disciplines {
   id                     Int                      @id @default(autoincrement())
   name                   String                   @unique
+  curriculum_plan_items  curriculum_plan_items[]
   department_disciplines department_disciplines[]
   discipline_specialties discipline_specialties[]
+}
+
+/// План или факт издания УМД (kind=plan|fact). Норма для сверки LLM с материалами.
+model curriculum_plans {
+  id            Int                     @id @default(autoincrement())
+  spec_code     String?                 @db.VarChar(30)
+  kind          String                  @default("plan") @db.VarChar(20)
+  title         String
+  year_start    Int?
+  form_of_study String?                 @db.VarChar(50)
+  qualification String?                 @db.VarChar(100)
+  source_file   String?
+  source_sha256 String?
+  notes         String?
+  created_at    DateTime                @default(now()) @db.Timestamptz(6)
+  items         curriculum_plan_items[]
+  specialties   specialties?            @relation(fields: [spec_code], references: [spec_code], onUpdate: Cascade, onDelete: Restrict)
+
+  @@index([spec_code])
+  @@index([kind, year_start])
+}
+
+/// Строка плана/факта УМД: дисциплина, вид издания, специальности, статус.
+model curriculum_plan_items {
+  id                Int               @id @default(autoincrement())
+  plan_id           Int
+  module_name       String?
+  discipline_name   String
+  discipline_id     Int?
+  department_name   String?
+  material_kind     String?
+  publication_title String?
+  authors           String?
+  spec_codes        String[]          @default([])
+  semester          Int?
+  month             String?
+  lectures_hours    Int?
+  labs_hours        Int?
+  practice_hours    Int?
+  self_study_hours  Int?
+  total_hours       Int?
+  credits           Decimal?          @db.Decimal(5, 1)
+  volume_sheets     Decimal?          @db.Decimal(6, 2)
+  print_run         Int?
+  control_form      String?           @db.VarChar(80)
+  competences       String[]          @default([])
+  form_of_study     String?           @db.VarChar(50)
+  status            String?
+  source_row        Int?
+  sort_order        Int?
+  plan              curriculum_plans  @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+  disciplines       disciplines?      @relation(fields: [discipline_id], references: [id], onDelete: SetNull)
+
+  @@index([plan_id])
+  @@index([discipline_id])
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.

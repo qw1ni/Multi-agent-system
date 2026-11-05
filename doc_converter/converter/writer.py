@@ -6,6 +6,7 @@
     document.json  — DoclingDocument без потерь (структура, таблицы, страницы, координаты);
                      из него можно пересобрать чанки без повторного распознавания
     chunks.jsonl   — чанки для RAG / эмбеддингов, по одному JSON на строку (см. converter.llm)
+    card.json      — тип документа (МУ/РП/ФОС/…) и важные поля (специальности, лабы, компетенции)
     meta.json      — что, из чего, чем и с каким результатом сконвертировано + quality
 
 Пишем во временную папку и переименовываем целиком, чтобы прерванный агент
@@ -21,6 +22,7 @@ from typing import Optional
 from converter.engine import EngineResult
 from converter.llm import LlmPayload
 from converter.tasks import (
+    CARD_FILE,
     CHUNKS_FILE,
     JSON_FILE,
     MARKDOWN_FILE,
@@ -55,6 +57,12 @@ def write_result(task: ConversionTask, result: EngineResult, meta: dict,
                 for chunk in payload.chunks:
                     f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
             outputs = {"markdown": MARKDOWN_FILE, "json": JSON_FILE, "chunks": CHUNKS_FILE}
+            if payload.card:
+                with open(tmp_dir / CARD_FILE, "w", encoding="utf-8") as f:
+                    json.dump(payload.card, f, ensure_ascii=False, indent=2)
+                outputs["card"] = CARD_FILE
+                meta["document_type"] = payload.card.get("document_type")
+                meta["document_type_label"] = payload.card.get("document_type_label")
             meta["stats"] = payload.stats
             meta["quality"] = payload.quality
             warnings = payload.warnings

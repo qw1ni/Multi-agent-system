@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from converter.config import ConverterConfig
+from converter.enricher import enrich
 from converter.tasks import ConversionTask
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class LlmPayload:
     stats: dict
     quality: dict
     warnings: List[str] = field(default_factory=list)
+    card: dict = field(default_factory=dict)
 
 
 def _markdown_tables_provider():
@@ -101,6 +103,11 @@ class LlmPreparer:
             chunks = []
             warnings.append(f"Чанки не построены: {type(e).__name__}: {e}")
 
+        enrichment = enrich(markdown, chunks)
+        markdown = enrichment.markdown
+        chunks = enrichment.chunks
+        card = enrichment.card
+
         pages = document.num_pages()
         tokens = [chunk["tokens"] for chunk in chunks]
         stats = {
@@ -129,7 +136,8 @@ class LlmPreparer:
             "flags": flags,
             "ocr_enabled": self.config.ocr_enabled,
         }
-        return LlmPayload(markdown=markdown, chunks=chunks, stats=stats, quality=quality, warnings=warnings)
+        return LlmPayload(markdown=markdown, chunks=chunks, stats=stats, quality=quality,
+                          warnings=warnings, card=card)
 
     def _chunks(self, task: ConversionTask, document, source_sha256: str) -> List[dict]:
         chunker = self.chunker

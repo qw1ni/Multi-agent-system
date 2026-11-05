@@ -19,9 +19,10 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 MARKDOWN_FILE = "document.md"
 JSON_FILE = "document.json"
 CHUNKS_FILE = "chunks.jsonl"
+CARD_FILE = "card.json"
 META_FILE = "meta.json"
-# 2 — появились chunks.jsonl и quality; результаты версии 1 доделываются из document.json
-META_SCHEMA_VERSION = 2
+# 3 — тип документа (МУ/РП/ФОС) и карточка важных полей
+META_SCHEMA_VERSION = 3
 MATERIAL_ID_RE = re.compile(r"^(\d+)_")
 
 

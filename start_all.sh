@@ -85,6 +85,11 @@ start_db() {
     log "БД создана и запущена на порту $DB_PORT"
   fi
   wait_port "$DB_PORT" "PostgreSQL" 30
+  local schema_sql="$SERVER_DIR/prisma/sql/curriculum_plans.sql"
+  if [[ -f "$schema_sql" ]]; then
+    docker exec -i "$DB_CONTAINER" psql -U postgres -d university_library_db < "$schema_sql" >/dev/null
+    log "Схема учебных планов проверена"
+  fi
 }
 
 start_parser() {

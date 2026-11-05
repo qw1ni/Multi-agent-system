@@ -33,6 +33,7 @@ def _entry(task, meta: dict, root: Path) -> dict:
         "source_sha256": meta.get("source", {}).get("sha256"),
         "status": meta.get("status"),
         "llm_ready": bool(meta.get("status") in ("success", "partial") and quality.get("llm_ready")),
+        "document_type": meta.get("document_type"),
         "flags": quality.get("flags", []),
         "pages": stats.get("pages", 0),
         "chunks": stats.get("chunks", 0),
