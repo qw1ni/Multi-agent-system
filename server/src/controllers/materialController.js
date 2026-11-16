@@ -61,6 +61,69 @@ export const searchMaterials = asyncHandler(async (req, res) => {
   res.status(200).json(results);
 });
 
+const forwardAiError = (err) => {
+  const error = new Error(
+    err.response?.data?.detail || err.response?.data?.message || err.message || 'Сервис MiniLM недоступен',
+  );
+  error.statusCode = err.response?.status || 502;
+  error.isOperational = true;
+  return error;
+};
+
+export const ragQuery = asyncHandler(async (req, res) => {
+  const { query, limit, threshold, material_id, document_type, role, section, source_file, doc_id, exclude_section, important_only } = req.body;
+  try {
+    const aiResponse = await axios.post(`${process.env.AI_SERVER_URL}/api/ai/rag/query`, {
+      query,
+      limit: limit || 8,
+      threshold: threshold ?? 0.35,
+      material_id,
+      document_type,
+      role,
+      section,
+      source_file,
+      doc_id,
+      exclude_section,
+      important_only: Boolean(important_only),
+    });
+    res.status(200).json(aiResponse.data);
+  } catch (err) {
+    throw forwardAiError(err);
+  }
+});
+
+export const ragIngest = asyncHandler(async (req, res) => {
+  const { filename, content_base64 } = req.body;
+  try {
+    const aiResponse = await axios.post(
+      `${process.env.AI_SERVER_URL}/api/ai/rag/ingest`,
+      { filename, content_base64 },
+      { timeout: 120000 },
+    );
+    res.status(200).json(aiResponse.data);
+  } catch (err) {
+    throw forwardAiError(err);
+  }
+});
+
+export const ragStats = asyncHandler(async (req, res) => {
+  try {
+    const aiResponse = await axios.get(`${process.env.AI_SERVER_URL}/api/ai/rag/stats`);
+    res.status(200).json(aiResponse.data);
+  } catch (err) {
+    throw forwardAiError(err);
+  }
+});
+
+export const ragDocuments = asyncHandler(async (req, res) => {
+  try {
+    const aiResponse = await axios.get(`${process.env.AI_SERVER_URL}/api/ai/rag/documents`);
+    res.status(200).json(aiResponse.data);
+  } catch (err) {
+    throw forwardAiError(err);
+  }
+});
+
 export const getSimilarMaterials = asyncHandler(async (req, res) => {
 
   const { material_id, limit } = req.body;

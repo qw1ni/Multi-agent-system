@@ -7,6 +7,7 @@
                      из него можно пересобрать чанки без повторного распознавания
     chunks.jsonl   — чанки для RAG / эмбеддингов, по одному JSON на строку (см. converter.llm)
     card.json      — тип документа (МУ/РП/ФОС/…) и важные поля (специальности, лабы, компетенции)
+    rpd.json       — если это рабочая программа: JSON schema 2.0.0 (эталон преподавателя)
     meta.json      — что, из чего, чем и с каким результатом сконвертировано + quality
 
 Пишем во временную папку и переименовываем целиком, чтобы прерванный агент
@@ -23,6 +24,7 @@ from converter.engine import EngineResult
 from converter.llm import LlmPayload
 from converter.tasks import (
     CARD_FILE,
+    RPD_FILE,
     CHUNKS_FILE,
     JSON_FILE,
     MARKDOWN_FILE,
@@ -63,6 +65,10 @@ def write_result(task: ConversionTask, result: EngineResult, meta: dict,
                 outputs["card"] = CARD_FILE
                 meta["document_type"] = payload.card.get("document_type")
                 meta["document_type_label"] = payload.card.get("document_type_label")
+            if payload.rpd:
+                with open(tmp_dir / RPD_FILE, "w", encoding="utf-8") as f:
+                    json.dump(payload.rpd, f, ensure_ascii=False, indent=2)
+                outputs["rpd"] = RPD_FILE
             meta["stats"] = payload.stats
             meta["quality"] = payload.quality
             warnings = payload.warnings

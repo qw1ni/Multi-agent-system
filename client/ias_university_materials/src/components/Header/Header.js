@@ -27,6 +27,7 @@ const Header = () => {
     { label: 'Каталог', path: '/catalog' },
     { label: 'Отчеты', path: '/reports' },
     { label: 'Аналитика', path: '/analytics' },
+    { label: 'Поиск MiniLM', path: '/rag' },
     { label: 'Администрирование', path: '/admin' }
   ];
 

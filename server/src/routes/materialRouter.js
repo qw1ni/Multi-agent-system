@@ -6,6 +6,10 @@ import {
   getMaterialStats,
   getRecentMaterials,
   searchMaterials,
+  ragQuery,
+  ragIngest,
+  ragStats,
+  ragDocuments,
   getSimilarMaterials,
   getDepartmentMaterialsReport,
   exportDepartmentReportToExcel,
@@ -23,6 +27,10 @@ router.get('/common_stats', getMaterialStats);
 router.get('/report/by_department', protect, getDepartmentMaterialsReport);
 router.get('/export_excel/by_department', protect, exportDepartmentReportToExcel);
 router.get('/export_word/by_department', protect, exportDepartmentReportToWord);
+router.post('/rag/query', protect, ragQuery);
+router.post('/rag/ingest', protect, ragIngest);
+router.get('/rag/stats', protect, ragStats);
+router.get('/rag/documents', protect, ragDocuments);
 router.get('/:id', protect, getMaterial);
 router.post('/search', searchMaterials);
 router.post('/similarity', getSimilarMaterials);

@@ -53,6 +53,24 @@ model material_embeddings {
   materials      materials              @relation(fields: [material_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_material_embedding")
 }
 
+model chunk_embeddings {
+  chunk_id      String                 @id
+  material_id   Int?
+  doc_id        String
+  section       String?
+  source_file   String?
+  chunk_index   Int?
+  headings      String?
+  pages         Int[]
+  role          String?
+  document_type String?
+  important     Boolean                @default(false)
+  text          String
+  embedding     Unsupported("vector")?
+  indexed_at    DateTime               @default(now()) @db.Timestamptz(6)
+  materials     materials?             @relation(fields: [material_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "chunk_embeddings_material_id_fkey")
+}
+
 model material_keywords {
   material_id Int
   keyword_id  Int
@@ -105,6 +123,7 @@ model materials {
   department_id        Int
   material_authors     material_authors[]
   material_embeddings  material_embeddings?
+  chunk_embeddings     chunk_embeddings[]
   material_keywords    material_keywords[]
   material_specialties material_specialties[]
   material_types       material_types[]

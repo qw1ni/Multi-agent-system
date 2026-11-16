@@ -8,12 +8,14 @@ SERVER_DIR="$ROOT/server"
 CLIENT_DIR="$ROOT/client/ias_university_materials"
 AGENTS_DIR="$ROOT/agents"
 CONVERTER_DIR="$ROOT/doc_converter"
+AI_DIR="$ROOT/ai_service"
 
 DB_CONTAINER="biblio-db"
 DB_PORT=5433
 PARSER_PORT=8001
 ORCH_PORT=8003
 CONVERTER_PORT=8004
+AI_PORT=8002
 SERVER_PORT=5001
 CLIENT_PORT=3000
 
@@ -90,6 +92,11 @@ start_db() {
     docker exec -i "$DB_CONTAINER" psql -U postgres -d university_library_db < "$schema_sql" >/dev/null
     log "Схема учебных планов проверена"
   fi
+  local rag_sql="$SERVER_DIR/prisma/sql/chunk_embeddings.sql"
+  if [[ -f "$rag_sql" ]]; then
+    docker exec -i "$DB_CONTAINER" psql -U postgres -d university_library_db < "$rag_sql" >/dev/null
+    log "Схема RAG-чанков проверена"
+  fi
 }
 
 start_parser() {
@@ -154,6 +161,26 @@ start_converter() {
   wait_port "$CONVERTER_PORT" "Конвертер" 60
 }
 
+start_ai() {
+  if lsof -nP -iTCP:"$AI_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    log "MiniLM уже на порту $AI_PORT"
+    return 0
+  fi
+  local py="$CONVERTER_DIR/.venv/bin/python"
+  if [[ ! -x "$py" ]]; then
+    warn "Нет $py — вкладка поиска MiniLM не поднимется"
+    return 0
+  fi
+  (
+    cd "$AI_DIR"
+    nohup env HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+      "$py" -m uvicorn app.main:app --host 127.0.0.1 --port "$AI_PORT" \
+      >"$LOG_DIR/ai_service.log" 2>&1 &
+    echo $! >>"$PIDS_FILE"
+  )
+  wait_port "$AI_PORT" "MiniLM / RAG" 90 || warn "ai_service не поднялся — поиск на сайте будет недоступен"
+}
+
 start_server() {
   if lsof -nP -iTCP:"$SERVER_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     log "Node-сервер уже на порту $SERVER_PORT"
@@ -196,6 +223,7 @@ start_all() {
   start_parser
   start_orchestrator
   start_converter
+  start_ai
   start_server
   start_client
   echo
@@ -205,6 +233,7 @@ start_all() {
   echo "  Parser: http://localhost:$PARSER_PORT"
   echo "  Orch:   http://127.0.0.1:$ORCH_PORT"
   echo "  Conv:   http://127.0.0.1:$CONVERTER_PORT"
+  echo "  MiniLM: http://127.0.0.1:$AI_PORT"
   echo "  DB:     localhost:$DB_PORT (docker: $DB_CONTAINER)"
   echo
   echo "Логи: $LOG_DIR/"
@@ -214,7 +243,7 @@ start_all() {
 
 stop_all() {
   echo "=== Остановка ==="
-  for port in "$CLIENT_PORT" "$SERVER_PORT" "$CONVERTER_PORT" "$ORCH_PORT" "$PARSER_PORT"; do
+  for port in "$CLIENT_PORT" "$SERVER_PORT" "$AI_PORT" "$CONVERTER_PORT" "$ORCH_PORT" "$PARSER_PORT"; do
     pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
     if [[ -n "${pids:-}" ]]; then
       kill $pids 2>/dev/null || true

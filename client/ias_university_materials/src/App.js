@@ -9,6 +9,7 @@ import MaterialDetailPage from './pages/MaterialDetailPage.js';
 import ReportsPage from './pages/ReportsPage.js';
 import AnalyticsPage from './pages/AnalyticsPage.js';
 import AdminPage from './pages/AdminPage.js';
+import RagPlaygroundPage from './pages/RagPlaygroundPage.js';
 import ForbiddenPage from './pages/Errors/ForbiddenPage.js';
 import NotFoundPage from './pages/Errors/NotFoundPage.js';
 import AgentChatWidget from './components/AgentChat/AgentChatWidget.js';
@@ -29,6 +30,7 @@ function App() {
           <Route element={<ProtectedRoute allowedRoles={Object.values(ROLES)} />}>
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/rag" element={<RagPlaygroundPage />} />
           </Route>
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="*" element={<NotFoundPage />} />

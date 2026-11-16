@@ -25,5 +25,8 @@
 **/.vscode/
 **/coverage/
 
+# Local embedding weights
+**/ai_service/models/
+
 # Prisma / misc
 **/.prisma/

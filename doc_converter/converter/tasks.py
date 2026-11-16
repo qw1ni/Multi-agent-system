@@ -20,6 +20,7 @@ MARKDOWN_FILE = "document.md"
 JSON_FILE = "document.json"
 CHUNKS_FILE = "chunks.jsonl"
 CARD_FILE = "card.json"
+RPD_FILE = "rpd.json"
 META_FILE = "meta.json"
 # 3 — тип документа (МУ/РП/ФОС) и карточка важных полей
 META_SCHEMA_VERSION = 3

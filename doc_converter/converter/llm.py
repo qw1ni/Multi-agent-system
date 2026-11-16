@@ -21,6 +21,7 @@ from typing import List
 
 from converter.config import ConverterConfig
 from converter.enricher import enrich
+from converter.rpd import maybe_extract_rpd
 from converter.tasks import ConversionTask
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class LlmPayload:
     quality: dict
     warnings: List[str] = field(default_factory=list)
     card: dict = field(default_factory=dict)
+    rpd: dict = field(default_factory=dict)
 
 
 def _markdown_tables_provider():
@@ -136,8 +138,20 @@ class LlmPreparer:
             "flags": flags,
             "ocr_enabled": self.config.ocr_enabled,
         }
+        rpd = {}
+        try:
+            rpd = maybe_extract_rpd(markdown, card, task.source.name) or {}
+        except Exception as e:
+            warnings.append(f"rpd.json не собран: {type(e).__name__}: {e}")
+        if rpd:
+            stats["rpd_labs"] = (
+                rpd.get("section_2_structure_and_content", {})
+                .get("subsection_2_2_schedule_map", {})
+                .get("aggregated_labs_and_practices", {})
+                .get("total_laboratory_works_count")
+            )
         return LlmPayload(markdown=markdown, chunks=chunks, stats=stats, quality=quality,
-                          warnings=warnings, card=card)
+                          warnings=warnings, card=card, rpd=rpd)
 
     def _chunks(self, task: ConversionTask, document, source_sha256: str) -> List[dict]:
         chunker = self.chunker
