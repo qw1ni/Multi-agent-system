@@ -96,6 +96,17 @@ class ParserService:
         faculties = self.crawler.parse_communities(root_html)
         self._log(f"Узлов L1 в разделе: {len(faculties)}")
 
+        if not faculties:
+            faculty_id = self.repo.save_faculty(_clip(root["name"]), root["url"])
+            if faculty_id:
+                self._process_department_materials(
+                    dept_name=_clip(f"{root['name']} / материалы"),
+                    dept_url=root["url"],
+                    count=root.get("count", 0),
+                    faculty_id=faculty_id,
+                )
+            return True
+
         for fac_data in faculties:
             if self.stopped:
                 return True

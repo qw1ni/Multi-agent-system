@@ -63,6 +63,11 @@ const AdminPage = () => {
     const [totalItems, setTotalItems] = useState(0);
 
     const DEFAULT_DOWNLOAD_SECTIONS = [
+        { id: 'Авторефераты', name: 'Авторефераты', materials_count: 0 },
+        { id: 'Конференции', name: 'Конференции', materials_count: 0 },
+        { id: 'Периодика', name: 'Периодика', materials_count: 0 },
+        { id: 'Расписание', name: 'Расписание', materials_count: 0 },
+        { id: 'Труды', name: 'Труды', materials_count: 0 },
         { id: 'ОКРБ 011-2009', name: 'ОКРБ 011-2009', materials_count: 0 },
         { id: 'ОКРБ 011-2022', name: 'ОКРБ 011-2022', materials_count: 0 },
         { id: 'РФ', name: 'РФ', materials_count: 0 },

@@ -206,7 +206,7 @@ const AgentChatWidget = () => {
                         <TextField
                             size="small"
                             fullWidth
-                            placeholder='Например: STATUS или СКАЧАТЬ РАЗДЕЛ Факультеты'
+                            placeholder='Например: START PARSING или ПАРСИНГ РАЗДЕЛ Расписание'
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             disabled={loading}

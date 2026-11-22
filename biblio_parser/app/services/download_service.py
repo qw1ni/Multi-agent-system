@@ -7,6 +7,8 @@ from urllib.parse import urlparse, unquote
 
 import requests
 
+from app.providers.parser import KNOWN_SECTIONS
+
 logger = logging.getLogger(__name__)
 
 # Общий на процесс: DownloadService создаётся заново на каждый запрос
@@ -20,15 +22,6 @@ class DownloadStopped(Exception):
 def request_stop():
     _stop_event.set()
 
-
-# Короткие имена разделов (как в парсере ROOT_SECTION_PATHS)
-KNOWN_SECTIONS = [
-    "ОКРБ 011-2009",
-    "ОКРБ 011-2022",
-    "РФ",
-    "РФ 3++",
-    "Факультеты",
-]
 
 SELECT_MATERIALS_WITH_FILES = """
 SELECT m.id, m.title, m.file_link, f.name AS faculty_name
@@ -57,8 +50,9 @@ def resolve_section(faculty_name: str) -> str:
     for section in sorted(KNOWN_SECTIONS, key=len, reverse=True):
         if name.startswith(f"{section} /") or name == section:
             return section
-    # Старые записи без префикса (до обновления парсера) — Факультеты
-    return "Факультеты"
+    if " / " in name:
+        return name.split(" / ", 1)[0]
+    return name or "Прочее"
 
 
 class DownloadService:
@@ -95,15 +89,17 @@ class DownloadService:
             section = resolve_section(row.get("faculty_name"))
             counts[section] = counts.get(section, 0) + int(row.get("materials_count") or 0)
 
+        extra = [name for name in counts if name not in KNOWN_SECTIONS]
+        names = list(KNOWN_SECTIONS) + extra
         return [
             {"id": section, "name": section, "materials_count": counts.get(section, 0)}
-            for section in KNOWN_SECTIONS
+            for section in names
         ]
 
     def run_download(self, sections=None):
         selected = None
         if sections:
-            selected = [s for s in sections if s in KNOWN_SECTIONS]
+            selected = [s for s in sections if str(s).strip()]
             if not selected:
                 self._log("Не выбраны корректные разделы для скачивания", "ERROR")
                 return

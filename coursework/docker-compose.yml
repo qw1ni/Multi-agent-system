@@ -1,0 +1,129 @@
+name: coursework
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: coursework-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-vector.sql:ro
+    networks:
+      - coursework_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  biblio_parser:
+    build:
+      context: ..
+      dockerfile: coursework/docker/Dockerfile.biblio-parser
+    image: coursework-biblio-parser
+    container_name: coursework-parser
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      HOST: 0.0.0.0
+      PORT: ${PARSER_PORT}
+      DOWNLOAD_DIR: /data/downloads
+      DISCIPLINES_EXCEL_PATH: /app/data/disciplines.xlsx
+      SPECIALTY_EXCEL_FILE: /app/data/specialties.xlsx
+      AI_SERVER_URL_REINDEX: http://ai_service:${AI_PORT}/api/ai/reindex
+    volumes:
+      - downloads:/data/downloads
+      - ../biblio_parser/data/disciplines.xlsx:/app/data/disciplines.xlsx:ro
+      - ../biblio_parser/data/specialties.xlsx:/app/data/specialties.xlsx:ro
+    ports:
+      - "${PARSER_PUBLISH_PORT}:${PARSER_PORT}"
+    networks:
+      - coursework_net
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${PARSER_PORT}/')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  ai_service:
+    build:
+      context: ..
+      dockerfile: coursework/docker/Dockerfile.ai-service
+    image: coursework-ai-service
+    container_name: coursework-ai
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      HOST: 0.0.0.0
+      PORT: ${AI_PORT}
+      PARSER_URL: http://biblio_parser:${PARSER_PORT}
+      MODEL_NAME: ${MODEL_NAME}
+    volumes:
+      - ../ai_service/models:/app/models:ro
+    ports:
+      - "${AI_PUBLISH_PORT}:${AI_PORT}"
+    networks:
+      - coursework_net
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${AI_PORT}/')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    restart: unless-stopped
+
+  parser_agent:
+    build:
+      context: ..
+      dockerfile: coursework/docker/Dockerfile.parser-agent
+    image: coursework-parser-agent
+    container_name: coursework-parser-agent
+    env_file: .env
+    environment:
+      PARSER_SERVER_URL: http://biblio_parser:${PARSER_PORT}
+      PORT: ${AGENT_PORT}
+    ports:
+      - "${AGENT_PUBLISH_PORT}:${AGENT_PORT}"
+    networks:
+      - coursework_net
+    depends_on:
+      biblio_parser:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${AGENT_PORT}/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  coursework_net:
+    name: coursework_net
+
+volumes:
+  pgdata:
+    name: coursework_pgdata
+  downloads:
+    name: coursework_downloads

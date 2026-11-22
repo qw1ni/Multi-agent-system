@@ -6,14 +6,44 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-# Известные корневые разделы с главной страницы библиотеки
+# Корневые разделы с главной «Разделы и коллекции» (короткие имена для роя/админки)
 ROOT_SECTION_PATHS = {
+    "/handle/1212121212/29": "Авторефераты",
+    "/handle/1212121212/7": "Конференции",
+    "/handle/1212121212/8": "Периодика",
+    "/handle/1212121212/10289": "Расписание",
+    "/handle/1212121212/9": "Труды",
     "/handle/1212121212/17870": "ОКРБ 011-2009",
     "/handle/1212121212/39836": "ОКРБ 011-2022",
     "/handle/1212121212/3120": "РФ",
     "/handle/1212121212/18910": "РФ 3++",
     "/handle/1212121212/10": "Факультеты",
 }
+
+KNOWN_SECTIONS = list(dict.fromkeys(ROOT_SECTION_PATHS.values()))
+
+_TITLE_ALIASES = (
+    (re.compile(r"автореферат", re.I), "Авторефераты"),
+    (re.compile(r"конференц", re.I), "Конференции"),
+    (re.compile(r"периодическ", re.I), "Периодика"),
+    (re.compile(r"расписание", re.I), "Расписание"),
+    (re.compile(r"труды\s+сотрудник", re.I), "Труды"),
+    (re.compile(r"окрб\s*011-2009", re.I), "ОКРБ 011-2009"),
+    (re.compile(r"окрб\s*011-2022", re.I), "ОКРБ 011-2022"),
+    (re.compile(r"3\+\+|3\+\+\+", re.I), "РФ 3++"),
+    (re.compile(r"образовательным программам рф", re.I), "РФ"),
+    (re.compile(r"факультет", re.I), "Факультеты"),
+)
+
+
+def short_section_name(path: str, title: str = "") -> str:
+    if path in ROOT_SECTION_PATHS:
+        return ROOT_SECTION_PATHS[path]
+    for pattern, name in _TITLE_ALIASES:
+        if pattern.search(title or ""):
+            return name
+    cleaned = re.sub(r"\s+", " ", (title or "").strip())
+    return cleaned[:40] or path
 
 
 class SiteCrawler:
@@ -35,36 +65,62 @@ class SiteCrawler:
             return urlparse(href).path
         return href.split("?")[0]
 
+    def _section_entry(self, path: str, title: str = "", count: int = 0):
+        name = short_section_name(path, title)
+        return {
+            "name": name,
+            "full_name": re.sub(r"\s+", " ", (title or name).strip()) or name,
+            "url": self.base_url.rstrip("/") + path,
+            "relative_path": path,
+            "count": count,
+        }
+
+    def fallback_root_sections(self):
+        """Все известные корни, если сайт не отдал список ссылок."""
+        return [self._section_entry(path, name) for path, name in ROOT_SECTION_PATHS.items()]
+
     def parse_root_sections(self, html: str):
-        """Собирает с главной 5 корневых разделов УМО / факультетов."""
+        """Корневые сообщества с community-list / главной (все разделы библиотеки)."""
         soup = BeautifulSoup(html, "html.parser")
-        sections = []
-        seen = set()
+        by_path = {}
+
+        browser = soup.select_one(
+            "div#aspect_artifactbrowser_CommunityBrowser_div_community-browser > ul"
+        )
+        if browser:
+            for li in browser.find_all("li", recursive=False):
+                a_tag = li.find("a", href=True)
+                if not a_tag:
+                    continue
+                path = self._normalize_path(a_tag["href"])
+                if "/handle/" not in path:
+                    continue
+                title = a_tag.get_text(" ", strip=True)
+                match = re.search(r"\[(\d+)\]", li.get_text(" ", strip=True))
+                by_path[path] = self._section_entry(
+                    path, title, int(match.group(1)) if match else 0
+                )
 
         for a_tag in soup.find_all("a", href=True):
             path = self._normalize_path(a_tag["href"])
-            short_name = ROOT_SECTION_PATHS.get(path)
-            if not short_name or path in seen:
+            if path not in ROOT_SECTION_PATHS or path in by_path:
                 continue
-            seen.add(path)
-            sections.append({
-                "name": short_name,
-                "full_name": a_tag.get_text(" ", strip=True) or short_name,
-                "url": self.base_url.rstrip("/") + path,
-                "relative_path": path,
-            })
+            by_path[path] = self._section_entry(path, a_tag.get_text(" ", strip=True))
 
-        # Fallback: если главная не отдала ссылки — берём FACULTIES_LINK
-        if not sections and self.faculties_link:
-            path = self._normalize_path(self.faculties_link)
-            sections.append({
-                "name": ROOT_SECTION_PATHS.get(path, "Факультеты"),
-                "full_name": ROOT_SECTION_PATHS.get(path, "Факультеты"),
-                "url": self.base_url.rstrip("/") + path,
-                "relative_path": path,
-            })
+        ordered = []
+        seen = set()
+        for path in ROOT_SECTION_PATHS:
+            if path in by_path and path not in seen:
+                ordered.append(by_path[path])
+                seen.add(path)
+        for path, section in by_path.items():
+            if path not in seen:
+                ordered.append(section)
+                seen.add(path)
 
-        return sections
+        if not ordered and self.faculties_link:
+            return self.fallback_root_sections()
+        return ordered
 
     def get_faculties_url(self, main_page):
         soup = BeautifulSoup(main_page, "html.parser")
@@ -132,7 +188,9 @@ class SiteCrawler:
         materials = []
         offset = 0
         page_size = 20
-        while offset < count:
+        while True:
+            if count > 0 and offset >= count:
+                break
             page_url = f"{dept_url}/recent-submissions?offset={offset}"
             html = self.fetch_page(page_url)
             if not html:

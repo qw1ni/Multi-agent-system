@@ -1,0 +1,15 @@
+.git
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.env
+**/.run_logs
+**/.run_pids
+**/data
+ai_service/models
+doc_converter
+client
+server
+coursework/backups
+**/.DS_Store

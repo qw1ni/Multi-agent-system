@@ -13,6 +13,10 @@ const ragService = {
     const response = await axiosInstance.post('/materials/rag/query', payload);
     return response.data;
   },
+  answer: async (payload) => {
+    const response = await axiosInstance.post('/materials/rag/answer', payload);
+    return response.data;
+  },
 };
 
 export default ragService;

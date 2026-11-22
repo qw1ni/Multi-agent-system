@@ -92,6 +92,32 @@ export const ragQuery = asyncHandler(async (req, res) => {
   }
 });
 
+export const ragAnswer = asyncHandler(async (req, res) => {
+  const { query, limit, threshold, material_id, document_type, role, section, source_file, doc_id, exclude_section, important_only } = req.body;
+  try {
+    const aiResponse = await axios.post(
+      `${process.env.AI_SERVER_URL}/api/ai/rag/answer`,
+      {
+        query,
+        limit: limit || 8,
+        threshold: threshold ?? 0.35,
+        material_id,
+        document_type,
+        role,
+        section,
+        source_file,
+        doc_id,
+        exclude_section,
+        important_only: Boolean(important_only),
+      },
+      { timeout: 180000 },
+    );
+    res.status(200).json(aiResponse.data);
+  } catch (err) {
+    throw forwardAiError(err);
+  }
+});
+
 export const ragIngest = asyncHandler(async (req, res) => {
   const { filename, content_base64 } = req.body;
   try {

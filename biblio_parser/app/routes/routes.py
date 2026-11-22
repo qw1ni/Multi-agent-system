@@ -26,7 +26,7 @@ class StartParserRequest(BaseModel):
     )
     sections: Optional[List[str]] = Field(
         default=None,
-        description="Корневые разделы для парсинга (например «Факультеты», «РФ 3++»). Пусто / null = все.",
+        description="Корневые разделы (Факультеты, Конференции, Авторефераты…). Пусто / null = все 10.",
     )
 
 

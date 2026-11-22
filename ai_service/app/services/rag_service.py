@@ -60,3 +60,51 @@ class RagService:
                 "similarity": round(float(row[12]), 4),
             })
         return results
+
+    def answer(self, query_text: str, **kwargs) -> dict:
+        from app.providers.cloud_llm import chat_text, configured, provider
+
+        hits = self.query(query_text, **kwargs)
+        if not hits:
+            return {"query": query_text, "answer": None, "provider": provider(), "results": []}
+        if not configured():
+            return {
+                "query": query_text,
+                "answer": None,
+                "provider": None,
+                "results": hits,
+                "warning": "Нет API-ключа облачной модели",
+            }
+        blocks = []
+        for i, hit in enumerate(hits, 1):
+            pages = ", ".join(str(p) for p in (hit.get("pages") or [])) or "—"
+            blocks.append(
+                f"[{i}] файл: {hit.get('source_file') or hit.get('doc_id')}; "
+                f"с. {pages}; сходство {hit['similarity']}\n{hit['text']}"
+            )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Ты помощник по учебно-методическим материалам университета. "
+                    "Отвечай только по приведённым фрагментам. Если в них нет ответа — скажи об этом. "
+                    "В конце укажи источники в виде имени файла и страниц. Пиши по-русски, кратко."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Вопрос: {query_text}\n\nФрагменты:\n\n" + "\n\n".join(blocks),
+            },
+        ]
+        try:
+            text = chat_text(messages)
+        except Exception as exc:
+            logger.error("Языковая модель: %s", exc)
+            return {
+                "query": query_text,
+                "answer": None,
+                "provider": provider(),
+                "results": hits,
+                "warning": f"Языковая модель недоступна: {exc}",
+            }
+        return {"query": query_text, "answer": text, "provider": provider(), "results": hits}

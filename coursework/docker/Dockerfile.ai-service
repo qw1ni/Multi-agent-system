@@ -1,0 +1,43 @@
+# Multi-stage: компилятор и кэш pip остаются в builder.
+# torch ставится с CPU-индекса PyTorch, без CUDA-колёс — так образ заметно меньше.
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /build
+COPY ai_service/requirements.txt .
+# Файл в репозитории сохранён как UTF-16. psycopg2 без колеса подменяется
+# на psycopg2-binary: импорт в коде остаётся psycopg2.
+RUN python -c "from pathlib import Path; p=Path('requirements.txt'); p.write_text(p.read_text(encoding='utf-16'), encoding='utf-8')" \
+    && grep -v '^torch==' requirements.txt > requirements.notorch.txt \
+    && sed -i 's/^psycopg2==/psycopg2-binary==/' requirements.notorch.txt \
+    && printf '%s\n' 'torch==2.10.0' > constraints.txt \
+    && pip install --prefix=/install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0' \
+    && pip install --prefix=/install -c constraints.txt -r requirements.notorch.txt \
+    && pip install --prefix=/install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    REQUIRED_VARS="DB_USER DB_PASSWORD DB_HOST DB_PORT DB_NAME PORT HOST MODEL_NAME"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY ai_service/app ./app
+COPY coursework/docker/entrypoint.sh /entrypoint.sh
+
+RUN useradd --create-home --uid 1000 --shell /usr/sbin/nologin app \
+    && mkdir -p /app/models \
+    && chown -R app:app /app \
+    && chmod +x /entrypoint.sh
+
+USER app
+EXPOSE 8002
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

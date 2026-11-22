@@ -3,6 +3,7 @@
 
 <CONVERTED_DIR>/<раздел>/<имя файла>/
     document.md    — очищенный Markdown для чтения человеком и длинного контекста LLM
+    document.txt   — тот же текст без разметки Markdown
     document.json  — DoclingDocument без потерь (структура, таблицы, страницы, координаты);
                      из него можно пересобрать чанки без повторного распознавания
     chunks.jsonl   — чанки для RAG / эмбеддингов, по одному JSON на строку (см. converter.llm)
@@ -21,13 +22,14 @@ from pathlib import Path
 from typing import Optional
 
 from converter.engine import EngineResult
-from converter.llm import LlmPayload
+from converter.llm import LlmPayload, markdown_to_txt
 from converter.tasks import (
     CARD_FILE,
     RPD_FILE,
     CHUNKS_FILE,
     JSON_FILE,
     MARKDOWN_FILE,
+    TEXT_FILE,
     META_FILE,
     META_SCHEMA_VERSION,
     ConversionTask,
@@ -53,12 +55,18 @@ def write_result(task: ConversionTask, result: EngineResult, meta: dict,
         warnings = []
         if result.document is not None and payload is not None:
             (tmp_dir / MARKDOWN_FILE).write_text(payload.markdown, encoding="utf-8")
+            (tmp_dir / TEXT_FILE).write_text(markdown_to_txt(payload.markdown), encoding="utf-8")
             with open(tmp_dir / JSON_FILE, "w", encoding="utf-8") as f:
                 json.dump(result.document.export_to_dict(), f, ensure_ascii=False)
             with open(tmp_dir / CHUNKS_FILE, "w", encoding="utf-8") as f:
                 for chunk in payload.chunks:
                     f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
-            outputs = {"markdown": MARKDOWN_FILE, "json": JSON_FILE, "chunks": CHUNKS_FILE}
+            outputs = {
+                "markdown": MARKDOWN_FILE,
+                "text": TEXT_FILE,
+                "json": JSON_FILE,
+                "chunks": CHUNKS_FILE,
+            }
             if payload.card:
                 with open(tmp_dir / CARD_FILE, "w", encoding="utf-8") as f:
                     json.dump(payload.card, f, ensure_ascii=False, indent=2)

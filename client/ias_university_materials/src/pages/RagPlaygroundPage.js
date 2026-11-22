@@ -23,6 +23,8 @@ const RagPlaygroundPage = () => {
   const [selected, setSelected] = useState(allFilesOption(ALL_SECTIONS.id));
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState([]);
+  const [answer, setAnswer] = useState('');
+  const [provider, setProvider] = useState('');
   const [searched, setSearched] = useState(false);
   const [stats, setStats] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -71,6 +73,8 @@ const RagPlaygroundPage = () => {
     setSection(next);
     setSelected(allFilesOption(next.id));
     setHits([]);
+    setAnswer('');
+    setProvider('');
     setSearched(false);
   };
 
@@ -92,9 +96,12 @@ const RagPlaygroundPage = () => {
       } else if (section?.id && section.id !== ALL_SECTIONS.id) {
         payload.section = section.id;
       }
-      const data = await ragService.query(payload);
+      const data = await ragService.answer(payload);
       setHits(data.results || []);
+      setAnswer(data.answer || '');
+      setProvider(data.provider || '');
       setSearched(true);
+      if (data.warning) setError(data.warning);
     } catch (err) {
       setError(err.data?.detail || err.message || 'Сервис MiniLM не запущен (порт 8002)');
     } finally {
@@ -111,7 +118,7 @@ const RagPlaygroundPage = () => {
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           Сначала выберите раздел корпуса (Факультеты, РФ3+++ и т.п.), затем документ внутри него.
-          Модель находит ближайшие фрагменты, а не пишет ответ своими словами.
+          MiniLM находит фрагменты, облачная модель отвечает только по ним.
         </Typography>
 
         {stats && (
@@ -173,10 +180,19 @@ const RagPlaygroundPage = () => {
             disabled={query.trim().length < 3 || busy}
             onClick={handleSearch}
           >
-            {busy ? 'Поиск…' : 'Найти фрагменты'}
+            {busy ? 'Поиск и ответ…' : 'Найти и ответить'}
           </Button>
           {busy && <CircularProgress size={22} sx={{ ml: 2, verticalAlign: 'middle' }} />}
         </Paper>
+
+        {answer && (
+          <Paper sx={{ p: 3, mt: 3, borderRadius: '12px', bgcolor: '#f7fbff' }}>
+            <Typography variant="subtitle2" sx={{ color: '#0056b3', mb: 1 }}>
+              Ответ модели{provider ? ` (${provider})` : ''}
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{answer}</Typography>
+          </Paper>
+        )}
 
         {hits.map((hit) => (
           <Paper key={hit.chunk_id} sx={{ p: 2, mt: 2, borderRadius: '12px' }}>

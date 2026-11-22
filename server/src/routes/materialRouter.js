@@ -7,6 +7,7 @@ import {
   getRecentMaterials,
   searchMaterials,
   ragQuery,
+  ragAnswer,
   ragIngest,
   ragStats,
   ragDocuments,
@@ -28,6 +29,7 @@ router.get('/report/by_department', protect, getDepartmentMaterialsReport);
 router.get('/export_excel/by_department', protect, exportDepartmentReportToExcel);
 router.get('/export_word/by_department', protect, exportDepartmentReportToWord);
 router.post('/rag/query', protect, ragQuery);
+router.post('/rag/answer', protect, ragAnswer);
 router.post('/rag/ingest', protect, ragIngest);
 router.get('/rag/stats', protect, ragStats);
 router.get('/rag/documents', protect, ragDocuments);

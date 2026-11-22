@@ -2,8 +2,8 @@
 РПД → JSON schema 2.0.0 (эталон преподавателя: schemas/rpd.example.json).
 
 Пайплайн: Docling/DOCX даёт текст, отсюда собирается rpd.json.
-Если задан RPD_LLM_URL — заполнение через LLM-промпт из prompts/rpd_pdf_to_json.md,
-иначе эвристики по заголовкам шаблона БРУ (титул, 1.x–8, Л.р., темы).
+Если задан OPENROUTER_API_KEY — заполнение облачной моделью OpenRouter
+(промпт prompts/rpd_pdf_to_json.md). Иначе эвристики по шаблону БРУ.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import List, Optional
 from xml.etree import ElementTree as ET
 
 from converter.enricher import COMPETENCE_RE, SPECIALTY_RE, extract_card
+from converter.openrouter import chat_json, configured as openrouter_configured, provider as llm_provider
 
 SCHEMA_VERSION = "2.0.0"
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "rpd_pdf_to_json.md"
@@ -372,7 +373,7 @@ def extract_rpd(text_or_path, source_file: str = "") -> dict:
         "schema_version": SCHEMA_VERSION,
         "document_type": "RPD",
         "source_file": source_file,
-        "extraction": "heuristic" if not os.getenv("RPD_LLM_URL") else "llm",
+        "extraction": llm_provider() or "heuristic",
         "title_page": title_page,
         "approval_page": {
             "fgos_reference": {
@@ -502,7 +503,7 @@ def extract_rpd(text_or_path, source_file: str = "") -> dict:
     llm_doc = _llm_extract(blob, source_file)
     if llm_doc:
         llm_doc.setdefault("source_file", source_file)
-        llm_doc["extraction"] = "llm"
+        llm_doc["extraction"] = llm_provider() or "llm"
         llm_doc.setdefault("_validation_and_audit", {})
         return llm_doc
 
@@ -519,36 +520,19 @@ def _system_prompt() -> str:
 
 
 def _llm_extract(markdown: str, source_file: str) -> Optional[dict]:
-    url = os.getenv("RPD_LLM_URL")
-    if not url:
-        return None
-    try:
-        import requests
-    except ImportError:
+    if not openrouter_configured():
         return None
     system = _system_prompt()
     user = (
         f"Преобразуй документ Рабочей программы дисциплины в полный JSON schema 2.0.0.\n"
         f"Имя файла: {source_file}\n\n<document_content>\n{markdown[:120000]}\n</document_content>"
     )
-    headers = {"Content-Type": "application/json"}
-    key = os.getenv("RPD_LLM_API_KEY")
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    payload = {
-        "model": os.getenv("RPD_LLM_MODEL", "default"),
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "response_format": {"type": "json_object"},
-    }
-    resp = requests.post(url, json=payload, headers=headers, timeout=300)
-    resp.raise_for_status()
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"]
-    return json.loads(content)
+    doc = chat_json(system, user)
+    if not doc:
+        return None
+    doc.setdefault("schema_version", SCHEMA_VERSION)
+    doc.setdefault("document_type", "RPD")
+    return doc
 
 
 def maybe_extract_rpd(markdown: str, card: dict, source_file: str) -> Optional[dict]:

@@ -2,6 +2,7 @@
 Слой данных для LLM: из DoclingDocument делаем то, что потом скармливается моделям.
 
   document.md   — очищенный Markdown целиком (для длинного контекста и чтения человеком)
+  document.txt  — тот же текст без разметки Markdown
   chunks.jsonl  — смысловые куски по структуре документа (заголовки, абзацы, таблицы),
                   каждый со ссылкой на материал, страницы и цепочку заголовков:
                     text               — показывать LLM и цитировать
@@ -35,6 +36,20 @@ _EXTRA_BLANK_LINES = re.compile(r"\n{3,}")
 
 MIN_DOC_CHARS = 200
 LOW_TEXT_CHARS_PER_PAGE = 300
+
+
+def markdown_to_txt(markdown: str) -> str:
+    text = markdown or ""
+    text = re.sub(r"^---\n.*?\n---\n", "", text, flags=re.S)
+    text = re.sub(r"^#+\s*", "", text, flags=re.M)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)\*(?!\*)", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"^>\s?", "", text, flags=re.M)
+    text = re.sub(r"^[-*]\s+", "", text, flags=re.M)
+    return normalize_text(text)
 
 
 def normalize_text(text: str) -> str:

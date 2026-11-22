@@ -62,6 +62,14 @@ class RagQueryResponse(BaseModel):
     results: List[RagHit]
 
 
+class RagAnswerResponse(BaseModel):
+    query: str
+    answer: Optional[str] = None
+    provider: Optional[str] = None
+    warning: Optional[str] = None
+    results: List[RagHit]
+
+
 class RagIndexResponse(BaseModel):
     status: str
     message: str

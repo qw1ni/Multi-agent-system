@@ -17,6 +17,7 @@ from converter.config import ConverterConfig
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 MARKDOWN_FILE = "document.md"
+TEXT_FILE = "document.txt"
 JSON_FILE = "document.json"
 CHUNKS_FILE = "chunks.jsonl"
 CARD_FILE = "card.json"

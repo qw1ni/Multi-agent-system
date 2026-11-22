@@ -20,6 +20,7 @@ from app.routes.schemas import (
     SimilarityRequest,
     RagQueryRequest,
     RagQueryResponse,
+    RagAnswerResponse,
     RagHit,
     RagIndexResponse,
     RagIngestRequest,
@@ -166,6 +167,39 @@ async def rag_query(
     except Exception as exc:
         logging.error("Ошибка RAG retrieve: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Ошибка поиска по чанкам")
+
+
+@router.post("/rag/answer", response_model=RagAnswerResponse)
+async def rag_answer(
+    request: RagQueryRequest,
+    service: RagService = Depends(get_rag_service),
+):
+    try:
+        data = service.answer(
+            request.query,
+            limit=request.limit,
+            threshold=request.threshold,
+            material_id=request.material_id,
+            document_type=request.document_type,
+            role=request.role,
+            section=request.section,
+            source_file=request.source_file,
+            doc_id=request.doc_id,
+            exclude_section=request.exclude_section or (
+                None if request.source_file or request.doc_id or request.section else PLAYGROUND_SECTION
+            ),
+            important_only=request.important_only,
+        )
+        return RagAnswerResponse(
+            query=data["query"],
+            answer=data.get("answer"),
+            provider=data.get("provider"),
+            warning=data.get("warning"),
+            results=[RagHit(**hit) for hit in data.get("results") or []],
+        )
+    except Exception as exc:
+        logging.error("Ошибка RAG answer: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Не удалось получить ответ языковой модели")
 
 
 @router.get("/rag/stats", response_model=RagStatsResponse)

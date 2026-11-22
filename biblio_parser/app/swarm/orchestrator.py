@@ -76,10 +76,19 @@ class ParsingOrchestrator:
             base_url=os.getenv("BASE_URL"),
             faculties_link=os.getenv("FACULTIES_LINK"),
         )
-        main_html = crawler.fetch_page(crawler.base_url)
-        if not main_html:
-            return None
-        return crawler.parse_root_sections(main_html)
+        roots = []
+        for path in ("community-list", ""):
+            html = crawler.fetch_page(crawler.base_url + path)
+            if not html:
+                continue
+            found = crawler.parse_root_sections(html)
+            if found:
+                roots = found
+                break
+        if not roots:
+            self._log("Сайт не отдал список разделов — беру полный каталог из конфигурации", "WARNING")
+            roots = crawler.fallback_root_sections()
+        return roots
 
     @staticmethod
     def _load_known_handles():
