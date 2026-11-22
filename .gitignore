@@ -16,7 +16,7 @@
 **/*.log
 .run_logs/
 .run_pids
-coursework/backups/
+coursework/
 
 # Build / IDE
 **/build/
