@@ -27,7 +27,7 @@ OPENROUTER_FALLBACKS = [
     "nvidia/nemotron-3-nano-30b-a3b:free",
     "openrouter/free",
 ]
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-flash-latest"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 

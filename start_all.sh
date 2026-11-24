@@ -47,6 +47,26 @@ wait_port() {
   return 1
 }
 
+wait_db() {
+  local i=0
+  while (( i < 40 )); do
+    if docker exec "$DB_CONTAINER" pg_isready -U postgres -d university_library_db >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+    ((i++)) || true
+  done
+  err "PostgreSQL в контейнере $DB_CONTAINER ещё не принимает подключения"
+  return 1
+}
+
+apply_sql() {
+  local file="$1" label="$2"
+  [[ -f "$file" ]] || return 0
+  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d university_library_db < "$file" >/dev/null
+  log "$label"
+}
+
 ensure_docker() {
   if ! docker info >/dev/null 2>&1; then
     warn "Docker не запущен — открываю Docker Desktop..."
@@ -87,16 +107,9 @@ start_db() {
     log "БД создана и запущена на порту $DB_PORT"
   fi
   wait_port "$DB_PORT" "PostgreSQL" 30
-  local schema_sql="$SERVER_DIR/prisma/sql/curriculum_plans.sql"
-  if [[ -f "$schema_sql" ]]; then
-    docker exec -i "$DB_CONTAINER" psql -U postgres -d university_library_db < "$schema_sql" >/dev/null
-    log "Схема учебных планов проверена"
-  fi
-  local rag_sql="$SERVER_DIR/prisma/sql/chunk_embeddings.sql"
-  if [[ -f "$rag_sql" ]]; then
-    docker exec -i "$DB_CONTAINER" psql -U postgres -d university_library_db < "$rag_sql" >/dev/null
-    log "Схема RAG-чанков проверена"
-  fi
+  wait_db
+  apply_sql "$SERVER_DIR/prisma/sql/curriculum_plans.sql" "Схема учебных планов проверена"
+  apply_sql "$SERVER_DIR/prisma/sql/chunk_embeddings.sql" "Схема RAG-чанков проверена"
 }
 
 start_parser() {
@@ -216,6 +229,58 @@ start_client() {
   wait_port "$CLIENT_PORT" "React-клиент" 90
 }
 
+start_pipeline() {
+  echo "=== Конвейер: БД + парсер + оркестратор + конвертер (без сайта и MiniLM) ==="
+  start_db
+  start_parser
+  start_orchestrator
+  start_converter
+  echo
+  log "Конвейер работает. Сайт не нужен."
+  echo "  Parser: http://127.0.0.1:$PARSER_PORT"
+  echo "  Orch:   http://127.0.0.1:$ORCH_PORT"
+  echo "  Conv:   http://127.0.0.1:$CONVERTER_PORT"
+  echo "  DB:     localhost:$DB_PORT"
+}
+
+parser_busy() {
+  local json
+  json=$(curl -sS "http://127.0.0.1:${PARSER_PORT}/api/parser/status" 2>/dev/null || echo "{}")
+  echo "$json" | grep -q '"parsing": true' && return 0
+  echo "$json" | grep -q '"downloading": true' && return 0
+  return 1
+}
+
+wait_parser_idle() {
+  local i=0
+  while parser_busy; do
+    sleep 20
+    ((i++)) || true
+    if (( i % 15 == 0 )); then
+      warn "парсер ещё работает... ($((i * 20)) с)"
+    fi
+  done
+}
+
+work_loop() {
+  start_pipeline
+  local pause="${WORK_PAUSE:-3600}"
+  export CONVERTER_SWARM_AGENTS="${CONVERTER_SWARM_AGENTS:-1}"
+  log "Круглосуточный цикл: новые материалы → скачать → конвертировать (1 агент). Пауза ${pause} с."
+  while true; do
+    warn "--- парсинг только новых ---"
+    parser_agent_cmd start-new "$@" || warn "парсинг не стартовал (рой уже занят?)"
+    wait_parser_idle
+    warn "--- скачивание файлов ---"
+    parser_agent_cmd download "$@" || warn "скачивание не стартовало"
+    wait_parser_idle
+    warn "--- конвертация ---"
+    convert_cmd run "$@" || warn "конвертация завершилась с ошибкой"
+    log "пауза ${pause} с, потом снова"
+    sleep "$pause"
+  done
+}
+
 start_all() {
   : >"$PIDS_FILE"
   echo "=== Запуск ИАС ==="
@@ -317,17 +382,21 @@ usage() {
 Использование: $(basename "$0") <команда>
 
   start     запустить БД → парсер → оркестратор → конвертер → Node → клиент
+  pipeline  только БД + парсер + оркестратор + конвертер (для круглосуточной работы)
+  work      pipeline + цикл: парсинг новых → конвертация → пауза (час)
   stop      остановить всё
   restart   stop + start
   status    показать, что запущено
-  parse     запустить парсинг через parser_agent (нужен работающий парсер)
+  parse     парсинг с нуля через parser_agent
+  parse-new парсинг только новых материалов
   sections  разделы через parser_agent
-  convert   PDF/DOCX/DOC → Markdown + JSON + чанки для LLM (рой агентов по разделам; --agents N)
+  convert   PDF/DOCX/DOC → Markdown + JSON + чанки
   convert-status  сколько файлов сконвертировано
 
 Примеры:
   ./start_all.sh start
-  ./start_all.sh parse
+  ./start_all.sh work
+  ./start_all.sh parse-new
   ./start_all.sh stop
 EOF
 }
@@ -337,10 +406,13 @@ shift || true
 
 case "$cmd" in
   start)   start_all ;;
+  pipeline) : >"$PIDS_FILE"; start_pipeline ;;
+  work)    : >"$PIDS_FILE"; work_loop "$@" ;;
   stop)    stop_all ;;
   restart) stop_all; start_all ;;
   status)  status_all ;;
   parse)   parser_agent_cmd start "$@" ;;
+  parse-new) parser_agent_cmd start-new "$@" ;;
   sections) parser_agent_cmd sections "$@" ;;
   convert) convert_cmd run "$@" ;;
   convert-status) convert_cmd status "$@" ;;

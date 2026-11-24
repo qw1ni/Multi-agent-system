@@ -99,12 +99,14 @@ class RagService:
         try:
             text = chat_text(messages)
         except Exception as exc:
-            logger.error("Языковая модель: %s", exc)
+            from app.providers.cloud_llm import redact
+
+            logger.error("Языковая модель: %s", redact(str(exc)))
             return {
                 "query": query_text,
                 "answer": None,
                 "provider": provider(),
                 "results": hits,
-                "warning": f"Языковая модель недоступна: {exc}",
+                "warning": redact(str(exc)),
             }
         return {"query": query_text, "answer": text, "provider": provider(), "results": hits}
