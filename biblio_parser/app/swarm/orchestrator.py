@@ -26,6 +26,24 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+class SaveQuota:
+    """Общий лимит новых записей на весь рой. None не передаётся — квоты нет."""
+
+    def __init__(self, limit: int):
+        self.limit = max(1, int(limit))
+        self.saved = 0
+        self._lock = threading.Lock()
+
+    def reserve(self, count: int) -> int:
+        with self._lock:
+            room = self.limit - self.saved
+            if room <= 0:
+                return 0
+            take = min(count, room)
+            self.saved += take
+            return take
+
+
 class ParsingOrchestrator:
     def __init__(self):
         self._state_lock = threading.Lock()
@@ -34,6 +52,8 @@ class ParsingOrchestrator:
         self._agents = []
         self.mode = None
         self.sections = None
+        self.limit = None
+        self.quota = None
         self.started_at = None
         self.finished_at = None
         self.last_error = None
@@ -49,7 +69,7 @@ class ParsingOrchestrator:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, mode: str = "full", sections=None) -> bool:
+    def start(self, mode: str = "full", sections=None, limit=None) -> bool:
         with self._state_lock:
             if self.is_running():
                 return False
@@ -57,6 +77,8 @@ class ParsingOrchestrator:
             self._agents = []
             self.mode = mode
             self.sections = list(sections) if sections else None
+            self.limit = int(limit) if limit else None
+            self.quota = SaveQuota(self.limit) if self.limit else None
             self.started_at = _now()
             self.finished_at = None
             self.last_error = None
@@ -112,10 +134,10 @@ class ParsingOrchestrator:
 
     def _run_swarm(self, mode: str):
         incremental = mode == "incremental"
+        portion = f" Порция: не больше {self.limit} новых." if self.limit else ""
         self._log(
-            "Запуск роя парсинга (только новые материалы)..."
-            if incremental else
-            "Запуск роя парсинга (с нуля, все материалы)..."
+            ("Запуск роя парсинга (только новые материалы)..." if incremental else
+             "Запуск роя парсинга (с нуля, все материалы)...") + portion
         )
 
         known_handles = None
@@ -140,7 +162,7 @@ class ParsingOrchestrator:
                 return
 
         self._agents = [
-            SectionParserAgent(i, root, self._stop_event, known_handles)
+            SectionParserAgent(i, root, self._stop_event, known_handles, quota=self.quota)
             for i, root in enumerate(roots, start=1)
         ]
         max_workers = max(1, min(int(os.getenv("SWARM_MAX_AGENTS", len(roots))), len(roots)))

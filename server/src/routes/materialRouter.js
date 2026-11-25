@@ -16,6 +16,7 @@ import {
   exportDepartmentReportToExcel,
   exportDepartmentReportToWord,
 } from '../controllers/materialController.js';
+import { getCoverage } from '../controllers/coverageController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { restrictTo } from '../middleware/roleMiddleware.js';
 import { ROLES } from '../config/roles.js';
@@ -33,6 +34,7 @@ router.post('/rag/answer', protect, ragAnswer);
 router.post('/rag/ingest', protect, ragIngest);
 router.get('/rag/stats', protect, ragStats);
 router.get('/rag/documents', protect, ragDocuments);
+router.get('/coverage', protect, getCoverage);
 router.get('/:id', protect, getMaterial);
 router.post('/search', searchMaterials);
 router.post('/similarity', getSimilarMaterials);

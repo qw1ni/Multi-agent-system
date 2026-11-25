@@ -9,10 +9,15 @@
 # Env and secrets
 **/.env
 !**/.env.example
+alert.env
+telegram_token.txt
+alert_chat.txt
 
 # Downloads and local data
 **/data/downloads/
 **/data/converted/
+university_library_db.sql
+doc_converter/data.zip
 **/*.log
 .run_logs/
 .run_pids

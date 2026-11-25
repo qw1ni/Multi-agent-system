@@ -30,13 +30,14 @@ class SectionParserAgent:
     FAILED = "failed"
     RESTARTING = "restarting"
 
-    def __init__(self, agent_id: int, root: dict, stop_event: threading.Event, known_handles=None):
+    def __init__(self, agent_id: int, root: dict, stop_event: threading.Event, known_handles=None, quota=None):
         self.agent_id = agent_id
         self.name = f"Агент-{agent_id}"
         self.root = root
         self.section = root["name"]
         self.stop_event = stop_event
         self.known_handles = known_handles
+        self.quota = quota
         self.state = self.WAITING
         self.error = None
         self.started_at = None
@@ -77,6 +78,7 @@ class SectionParserAgent:
                 stop_event=self.stop_event,
                 stats=self.stats,
                 done_handles=self.done_handles,
+                quota=self.quota,
             )
             if self.restarts:
                 self.service._log(f"Перезапуск №{self.restarts}: продолжаю, уже записанные "

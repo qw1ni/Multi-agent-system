@@ -10,6 +10,7 @@ import ReportsPage from './pages/ReportsPage.js';
 import AnalyticsPage from './pages/AnalyticsPage.js';
 import AdminPage from './pages/AdminPage.js';
 import RagPlaygroundPage from './pages/RagPlaygroundPage.js';
+import CoveragePage from './pages/CoveragePage.js';
 import ForbiddenPage from './pages/Errors/ForbiddenPage.js';
 import NotFoundPage from './pages/Errors/NotFoundPage.js';
 import AgentChatWidget from './components/AgentChat/AgentChatWidget.js';
@@ -31,6 +32,7 @@ function App() {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/rag" element={<RagPlaygroundPage />} />
+            <Route path="/coverage" element={<CoveragePage />} />
           </Route>
           <Route path="/403" element={<ForbiddenPage />} />
           <Route path="*" element={<NotFoundPage />} />

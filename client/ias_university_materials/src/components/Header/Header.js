@@ -28,6 +28,7 @@ const Header = () => {
     { label: 'Отчеты', path: '/reports' },
     { label: 'Аналитика', path: '/analytics' },
     { label: 'Поиск MiniLM', path: '/rag' },
+    { label: 'Сверка УМД', path: '/coverage' },
     { label: 'Администрирование', path: '/admin' }
   ];
 

@@ -34,12 +34,18 @@ HELP_TEXT = """Формальный язык команд (пока только
   DOWNLOAD ALL | СКАЧАТЬ ВСЕ
   DOWNLOAD SECTION <имя> | СКАЧАТЬ РАЗДЕЛ <имя>
 
+Отдельный режим, не заменяет обычный парсинг:
+  CYCLE [N] | КОНВЕЙЕР [N]          — по кругу: N новых с сайта, скачать N, сконвертировать N
+  CYCLE STATUS | СТАТУС КОНВЕЙЕРА
+  STOP CYCLE | СТОП КОНВЕЙЕР
+
 Примеры:
   STATUS
   START PARSING
   ПАРСИНГ НОВЫХ РАЗДЕЛ Факультеты, РФ 3++, Конференции
   DOWNLOAD SECTION Авторефераты
   СКАЧАТЬ РАЗДЕЛ Факультеты
+  КОНВЕЙЕР 30
 """
 
 
@@ -114,6 +120,21 @@ def parse_formal_command(text: str) -> FormalCommand:
             args={"sections": [s for s in sections if s]},
             raw=raw,
         )
+
+    if upper in {"CYCLE STATUS", "СТАТУС КОНВЕЙЕРА", "КОНВЕЙЕР СТАТУС"}:
+        return FormalCommand(intent="cycle_status", args={}, raw=raw)
+
+    if upper in {"STOP CYCLE", "СТОП КОНВЕЙЕР", "ОСТАНОВИТЬ КОНВЕЙЕР"}:
+        return FormalCommand(intent="cycle_stop", args={}, raw=raw)
+
+    m = re.match(
+        r"^(?:CYCLE|КОНВЕЙЕР|START CYCLE|ЗАПУСТИТЬ КОНВЕЙЕР)(?:\s+(?P<batch>\d+))?$",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        batch = int(m.group("batch")) if m.group("batch") else 30
+        return FormalCommand(intent="cycle_start", args={"batch": batch}, raw=raw)
 
     m = re.match(
         r"^(?:DOWNLOAD SECTION|СКАЧАТЬ РАЗДЕЛ)\s+(.+)$",

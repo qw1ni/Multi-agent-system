@@ -38,7 +38,8 @@ class ParserService:
     def __init__(self, crawler, repository, log_sender,
                  log_prefix: str = "", known_handles=None,
                  stop_event: threading.Event = None,
-                 stats: dict = None, done_handles: set = None):
+                 stats: dict = None, done_handles: set = None,
+                 quota=None):
         self.crawler = crawler
         self.repo = repository
         self.ai_reindex_url = os.getenv("AI_SERVER_URL_REINDEX")
@@ -56,6 +57,7 @@ class ParserService:
                     "skipped_no_file", "failed_batches", "failed_materials"):
             self.stats.setdefault(key, 0)
         self.done_handles = done_handles if done_handles is not None else set()
+        self.quota = quota
 
     def _log(self, message: str, level: str = "INFO"):
         text = f"{self.log_prefix} {message}" if self.log_prefix else message
@@ -76,6 +78,18 @@ class ParserService:
     def _flush(self, batch, handles):
         if not batch:
             return
+        if self.quota is not None:
+            allowed = self.quota.reserve(len(batch))
+            if allowed <= 0:
+                batch.clear()
+                handles.clear()
+                self.stop_event.set()
+                return
+            if allowed < len(batch):
+                del batch[allowed:]
+                del handles[allowed:]
+            if self.quota.saved >= self.quota.limit:
+                self.stop_event.set()
         if self.repo.save_materials_batch(batch):
             self.stats["saved"] += len(batch)
             self.done_handles.update(h for h in handles if h)

@@ -15,6 +15,7 @@ if str(_AGENTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENTS_ROOT))
 
 from parser_agent import ParserAgent
+from orchestrator.cycle import PipelineCycle
 from orchestrator.formal_lang import HELP_TEXT, parse_formal_command, suggest_commands
 
 
@@ -24,6 +25,7 @@ class OrchestratorAgent:
 
     def __init__(self, parser_url: str | None = None):
         self.parser = ParserAgent(base_url=parser_url)
+        self.cycle = PipelineCycle(self.parser)
 
     def chat(self, message: str) -> Dict[str, Any]:
         command = parse_formal_command(message)
@@ -45,6 +47,26 @@ class OrchestratorAgent:
                 "Команда не распознана формальным языком.\n\n" + HELP_TEXT,
                 command.intent,
                 suggestions=suggest_commands(),
+            )
+
+        if command.intent in {"cycle_start", "cycle_stop", "cycle_status"}:
+            if command.intent == "cycle_start":
+                result = self.cycle.start(command.args.get("batch") or 30)
+            elif command.intent == "cycle_stop":
+                result = self.cycle.stop()
+            else:
+                snap = self.cycle.snapshot()
+                result = {
+                    "ok": True,
+                    "message": snap.get("last_message") or "Конвейер не запускался",
+                    "data": snap,
+                }
+            return self._reply(
+                result["ok"],
+                result["message"],
+                command.intent,
+                data=result.get("data"),
+                delegated_to="pipeline_cycle",
             )
 
         # Делегирование parser_agent

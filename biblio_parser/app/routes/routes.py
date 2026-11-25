@@ -28,12 +28,24 @@ class StartParserRequest(BaseModel):
         default=None,
         description="Корневые разделы (Факультеты, Конференции, Авторефераты…). Пусто / null = все 10.",
     )
+    limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=5000,
+        description="Остановиться после N новых материалов. Пусто = без лимита.",
+    )
 
 
 class DownloadFilesRequest(BaseModel):
     sections: Optional[List[str]] = Field(
         default=None,
         description="Список разделов для скачивания. Пусто / null = все.",
+    )
+    limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=5000,
+        description="Скачать не больше N новых файлов. Пусто = все недостающие.",
     )
 
 
@@ -76,7 +88,7 @@ def _run_in_thread(target, *args, lock: threading.Lock = None):
 @router.post("/start")
 async def start_parser_endpoint(body: StartParserRequest = StartParserRequest()):
     sections = [s for s in (body.sections or []) if s and s.strip()] or None
-    if not orchestrator.start(body.mode, sections):
+    if not orchestrator.start(body.mode, sections, limit=body.limit):
         return {
             "status": "busy",
             "message": "Рой парсинга уже работает"
@@ -146,7 +158,7 @@ async def download_files_endpoint(
             "message": "Скачивание уже выполняется"
         }
 
-    _run_in_thread(service.run_download, sections, lock=_download_lock)
+    _run_in_thread(service.run_download, sections, body.limit, lock=_download_lock)
 
     if sections:
         message = f"Скачивание файлов запущено для разделов: {', '.join(sections)}"

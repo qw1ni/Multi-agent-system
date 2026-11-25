@@ -96,7 +96,7 @@ class DownloadService:
             for section in names
         ]
 
-    def run_download(self, sections=None):
+    def run_download(self, sections=None, limit=None):
         selected = None
         if sections:
             selected = [s for s in sections if str(s).strip()]
@@ -106,7 +106,8 @@ class DownloadService:
 
         _stop_event.clear()
         label = ", ".join(selected) if selected else "все разделы"
-        self._log(f"Запуск скачивания файлов ({label})...")
+        portion = f", не больше {int(limit)} новых" if limit else ""
+        self._log(f"Запуск скачивания файлов ({label}{portion})...")
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
         materials = self.repo.db.fetchall(SELECT_MATERIALS_WITH_FILES)
@@ -164,6 +165,11 @@ class DownloadService:
                                     out.write(chunk)
                     partial.replace(target)
                     downloaded += 1
+                    if limit and downloaded >= int(limit):
+                        self._log(
+                            f"Порция скачана: {downloaded} новых файлов. Остальное не трогаю."
+                        )
+                        return
                 except DownloadStopped:
                     partial.unlink(missing_ok=True)
                     log_stopped(index - 1)
